@@ -185,12 +185,17 @@ class Resultado:
 
 
 def registrar_produtos(vistos: dict[int, dict], ferramenta: str, conteudo: dict) -> None:
-    """Guarda, por id, o que o catálogo devolveu, para conferir a proposta do modelo."""
+    """Guarda, por id, o que o catálogo devolveu, para conferir a proposta do modelo.
+
+    `_termos` diz de quais buscas o produto veio: alternativas só se comparam dentro da mesma busca, porque a
+    categoria da DummyJSON é larga demais (maçã e leite são os dois "groceries").
+    """
     if ferramenta == "buscar_produtos":
         for p in conteudo["produtos"]:
-            vistos[p["id"]] = p
+            termos = vistos.get(p["id"], {}).get("_termos", set()) | {conteudo.get("termo", "")}
+            vistos[p["id"]] = {**p, "_termos": termos}
     elif ferramenta == "detalhar_produto":
-        vistos[conteudo["id"]] = conteudo
+        vistos[conteudo["id"]] = {**conteudo, "_termos": vistos.get(conteudo["id"], {}).get("_termos", set())}
 
 
 def conferir_itens(
@@ -205,7 +210,8 @@ def conferir_itens(
     for p in propostos:
         if p.quantidade != p.quantidade_pedida:
             visto = vistos.get(p.produto_id)
-            saida = _sugestao(visto, p.quantidade_pedida, p.teto_unitario, vistos) if visto else ""
+            exigido = bool(p.motivo_escolha)
+            saida = _sugestao(visto, p.quantidade_pedida, p.teto_unitario, vistos, exigido) if visto else ""
             problemas.append(
                 f"produto {p.produto_id}: a pessoa pediu {p.quantidade_pedida} e a proposta tem {p.quantidade}; não "
                 f"mude a quantidade pedida (escolha outro produto ou deixe o item em faltou){saida}"
@@ -233,13 +239,15 @@ def conferir_itens(
             falhas.append(f"US$ {preco} passa do teto de US$ {teto} por unidade")
         if falhas:
             # A recusa já aponta a saída: sem ela, o modelo chegou a desistir dizendo que nada atendia.
-            problemas.append(f"{p['titulo']}: {'; '.join(falhas)}{_sugestao(p, qtd, teto, vistos)}")
+            saida = _sugestao(p, qtd, teto, vistos, exigido=produto_id in motivos)
+            problemas.append(f"{p['titulo']}: {'; '.join(falhas)}{saida}")
         elif produto_id not in motivos:
             barato = _mais_barato_que_atende(p, qtd, teto, vistos)
             if barato:
                 problemas.append(
-                    f"{p['titulo']}: {barato['titulo']} (US$ {barato['preco']}) também atende e é mais barato. "
-                    "Escolha o mais barato ou, se o pedido exige este produto, diga o porquê em motivo_escolha"
+                    f"{p['titulo']}: {barato['titulo']} (US$ {barato['preco']}), da mesma busca, também atende e "
+                    "é mais barato. Se o pedido aceita outro produto, troque; se exige este, diga o porquê em "
+                    "motivo_escolha"
                 )
         itens.append(Item(produto_id, p["titulo"], qtd, preco))
 
@@ -343,11 +351,13 @@ def _valores_conhecidos(pedido: str, proposta: "Proposta", itens: list[Item], vi
     return conhecidos
 
 
-def _que_atendem(categoria: str, qtd: int, teto: Decimal | None, vistos: dict[int, dict]) -> list[dict]:
-    """Produtos vistos na conversa, da categoria, que atendem à quantidade e ao teto; do mais barato ao mais caro."""
+def _que_atendem(produto: dict, qtd: int, teto: Decimal | None, vistos: dict[int, dict]) -> list[dict]:
+    """Produtos da mesma busca e da mesma categoria que o produto, que atendem à quantidade e ao teto; do mais
+    barato ao mais caro."""
     opcoes = [
         v for v in vistos.values()
-        if v["categoria"] == categoria
+        if v["categoria"] == produto["categoria"]
+        and v.get("_termos", set()) & produto.get("_termos", set())
         and v["estoque"] >= qtd
         and v["quantidade_minima"] <= qtd
         and (teto is None or Decimal(str(v["preco"])) <= teto)
@@ -357,19 +367,23 @@ def _que_atendem(categoria: str, qtd: int, teto: Decimal | None, vistos: dict[in
 
 def _mais_barato_que_atende(escolhido: dict, qtd: int, teto: Decimal | None, vistos: dict[int, dict]) -> dict | None:
     preco = Decimal(str(escolhido["preco"]))
-    opcoes = _que_atendem(escolhido["categoria"], qtd, teto, vistos)
+    opcoes = _que_atendem(escolhido, qtd, teto, vistos)
     mais_baratos = [v for v in opcoes if Decimal(str(v["preco"])) < preco]
     return mais_baratos[0] if mais_baratos else None
 
 
-def _sugestao(produto: dict, qtd: int, teto: Decimal | None, vistos: dict[int, dict]) -> str:
-    opcoes = [v for v in _que_atendem(produto["categoria"], qtd, teto, vistos) if v["id"] != produto["id"]]
+def _sugestao(produto: dict, qtd: int, teto: Decimal | None, vistos: dict[int, dict], exigido: bool = False) -> str:
+    """O que dizer ao modelo depois de uma recusa. Se o pedido exige este produto, não sugere trocar."""
+    if exigido:
+        return ". O pedido exige este produto: deixe o item em faltou com o motivo"
+    opcoes = [v for v in _que_atendem(produto, qtd, teto, vistos) if v["id"] != produto["id"]]
     if not opcoes:
-        return ". Nenhum outro produto desta categoria visto até agora atende"
+        return ". Nenhum outro produto da mesma busca atende; se não houver outra busca a fazer, deixe o item em faltou"
     v = opcoes[0]
     return (
-        f". Opção que atende: {v['titulo']} (id {v['id']}, US$ {v['preco']}, mínimo {v['quantidade_minima']}, "
-        f"estoque {v['estoque']})"
+        f". Se o pedido aceita outro produto, um da mesma busca que atende é {v['titulo']} (id {v['id']}, "
+        f"US$ {v['preco']}, mínimo {v['quantidade_minima']}, estoque {v['estoque']}); se exige este, deixe o item "
+        "em faltou"
     )
 
 

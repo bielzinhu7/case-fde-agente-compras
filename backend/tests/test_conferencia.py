@@ -170,7 +170,7 @@ def test_recusa_aponta_a_opcao_que_atende():
     _, problemas = conferir_itens([item(128, 2, teto=300)], vistos(REALME, VIVO, PAU_DE_SELFIE))
 
     assert "mínimo por pedido é 3" in problemas[0]
-    assert "Opção que atende: Vivo S1 (id 134" in problemas[0]
+    assert "um da mesma busca que atende é Vivo S1 (id 134" in problemas[0]
 
 
 # --- orçamento total ------------------------------------------------------------------------------
@@ -234,3 +234,44 @@ def test_quantidade_declarada_tem_que_estar_no_pedido():
     assert conferir_contra_o_pedido(proposta([item(81, 3)]), "Preciso de três laptops") == []
     assert conferir_contra_o_pedido(proposta([item(81, 1)]), "Preciso de laptop") == []
     assert "quantidade_pedida 5" in conferir_contra_o_pedido(proposta([item(81, 5)]), "Preciso de 3 laptops")[0]
+
+
+# --- alternativas só da mesma busca, e nunca para produto exigido -----------------------------------
+
+
+def vistos_de(**buscas):
+    """Cada argumento é uma busca: termo=lista de produtos devolvidos por ela."""
+    v = {}
+    for termo, produtos in buscas.items():
+        registrar_produtos(v, "buscar_produtos", {"termo": termo, "produtos": list(produtos)})
+    return v
+
+
+MACA = {"id": 201, "titulo": "Apple", "categoria": "groceries", "preco": 1.99, "estoque": 50, "quantidade_minima": 1}
+LEITE = {"id": 202, "titulo": "Milk", "categoria": "groceries", "preco": 3.49, "estoque": 50, "quantidade_minima": 1}
+
+
+def test_produto_de_outra_busca_da_mesma_categoria_nao_e_alternativa():
+    """Maçã e leite são os dois "groceries"; a maçã não pode virar opção mais barata do leite."""
+    _, problemas = conferir_itens([item(202, 5)], vistos_de(apple=[MACA], milk=[LEITE]))
+
+    assert problemas == []
+
+
+def test_recusa_por_estoque_nao_sugere_produto_de_outra_busca():
+    """ "30 MacBook Pro": o Lenovo veio da busca "laptop", não da busca "macbook"."""
+    v = vistos_de(macbook=[MACBOOK], laptop=[{**LENOVO, "estoque": 40}])
+
+    _, problemas = conferir_itens([item(78, 30)], v)
+
+    assert "24 em estoque" in problemas[0]
+    assert "Lenovo" not in problemas[0]
+
+
+def test_produto_exigido_nao_recebe_sugestao_de_troca():
+    v = vistos(MACBOOK, {**LENOVO, "estoque": 40})
+
+    _, problemas = conferir_itens([item(78, 30, motivo="o pedido pediu MacBook Pro")], v)
+
+    assert "exige este produto" in problemas[0]
+    assert "Lenovo" not in problemas[0]
