@@ -275,3 +275,12 @@ def test_produto_exigido_nao_recebe_sugestao_de_troca():
 
     assert "exige este produto" in problemas[0]
     assert "Lenovo" not in problemas[0]
+
+
+def test_quantidade_por_extenso_nao_trava_o_pedido():
+    """ "Meia dúzia" e "vinte" não estão em algarismos: a regra não confere, em vez de recusar para sempre."""
+    from app.agente import conferir_contra_o_pedido
+
+    assert conferir_contra_o_pedido(proposta([item(81, 6)]), "Preciso de meia dúzia de cadeiras") == []
+    assert conferir_contra_o_pedido(proposta([item(81, 20)]), "Preciso de vinte laptops") == []
+    assert conferir_contra_o_pedido(proposta([item(81, 3)]), "Preciso de três laptops e 2 monitores") == []

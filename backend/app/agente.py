@@ -310,14 +310,18 @@ def valores_do_pedido(pedido: str) -> set[Decimal]:
     return valores
 
 
-def quantidades_do_pedido(pedido: str) -> set[int]:
-    """Quantidades escritas no pedido, em número ou por extenso; sem nenhuma, vale 1 ("um laptop")."""
+def quantidades_do_pedido(pedido: str) -> set[int] | None:
+    """Quantidades escritas no pedido. None quando nenhuma vem em algarismos: "meia dúzia", "vinte e cinco" ou
+    "um laptop" não dão para conferir com segurança, e uma regra errada aqui travaria um pedido legítimo."""
     sem_dinheiro = pedido
     for padrao in (_DINHEIRO, _DOLARES, _MIL):  # "US$ 2.000", "2000 dólares" e "2 mil" não são quantidade
         sem_dinheiro = padrao.sub(" ", sem_dinheiro)
     numeros = {int(n) for n in _INTEIRO.findall(sem_dinheiro)}
+    if not numeros:
+        return None
+    # Pedido misto ("três laptops e 2 monitores"): os números por extenso mais comuns também valem.
     palavras = {_POR_EXTENSO[p] for p in re.findall(r"[a-zà-ú]+", pedido.lower()) if p in _POR_EXTENSO}
-    return (numeros | palavras) or {1}
+    return numeros | palavras
 
 
 def conferir_contra_o_pedido(proposta: "Proposta", pedido: str) -> list[str]:
@@ -334,10 +338,11 @@ def conferir_contra_o_pedido(proposta: "Proposta", pedido: str) -> list[str]:
     if valores and proposta.itens and not tetos:
         problemas.append("o pedido cita um valor em dinheiro: informe-o em teto_unitario (por unidade) ou em "
                          "teto_total (pedido inteiro)")
-    problemas += [
-        f"produto {i.produto_id}: a quantidade_pedida {i.quantidade_pedida} não aparece no pedido"
-        for i in proposta.itens if i.quantidade_pedida not in quantidades
-    ]
+    if quantidades is not None:
+        problemas += [
+            f"produto {i.produto_id}: a quantidade_pedida {i.quantidade_pedida} não aparece no pedido"
+            for i in proposta.itens if i.quantidade_pedida not in quantidades
+        ]
     return problemas
 
 
