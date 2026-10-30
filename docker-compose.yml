@@ -1,0 +1,12 @@
+services:
+  mcp:
+    build: ./mcp-server
+    environment:
+      DUMMYJSON_URL: ${DUMMYJSON_URL:-https://dummyjson.com}
+      DUMMYJSON_TIMEOUT: ${DUMMYJSON_TIMEOUT:-5}
+      MCP_ALLOWED_HOSTS: localhost:*,127.0.0.1:*,mcp:*
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
