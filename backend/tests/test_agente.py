@@ -3,6 +3,7 @@
 import json
 from typing import Any
 
+import anyio
 import pytest
 from mcp import Client
 from mcp.server import MCPServer
@@ -75,7 +76,7 @@ async def test_pedido_de_exemplo_vira_requisicao_com_precos_do_catalogo(monkeypa
         chamada("buscar_produtos", termo="laptop"),
         chamada("detalhar_produto", id=81),
         # o modelo erra o preço no texto; não importa: o valor vem do catálogo
-        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3}], preco_unitario_maximo=2000,
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "teto_unitario": 2000}],
                 mensagem="Escolhi o Lenovo Yoga 920, que custa US$ 999."),
     ])
 
@@ -83,26 +84,45 @@ async def test_pedido_de_exemplo_vira_requisicao_com_precos_do_catalogo(monkeypa
 
     assert [(i.produto_id, i.quantidade, str(i.preco_unitario)) for i in r.itens] == [(81, 3, "1099.99")]
     assert str(r.total) == "3299.97"
-    assert [c["argumentos"] for c in r.ferramentas] == [{"termo": "laptops"}, {"termo": "laptop"}, {"id": 81}]
+    assert [c["ferramenta"] for c in r.ferramentas] == [
+        "buscar_produtos", "buscar_produtos", "detalhar_produto", "responder"
+    ]
 
 
 async def test_produto_inventado_volta_para_o_modelo_corrigir(monkeypatch, catalogo):
     recebidas = modelo_roteirizado(monkeypatch, [
-        chamada("responder", itens=[{"produto_id": 555, "quantidade": 3}], preco_unitario_maximo=None, mensagem="ok"),
+        chamada("responder", itens=[{"produto_id": 555, "quantidade": 3}], mensagem="ok"),
         chamada("buscar_produtos", termo="laptop"),
-        chamada("responder", itens=[{"produto_id": 78, "quantidade": 3}], preco_unitario_maximo=None, mensagem="ok"),
+        chamada("responder", itens=[{"produto_id": 78, "quantidade": 3}], mensagem="ok"),
     ])
 
     r = await agente.atender("3 laptops")
 
     assert "recusada pela conferência" in recebidas[1][-1]["content"]
     assert [i.produto_id for i in r.itens] == [78]
+    # a recusa fica registrada, para aparecer no chat
+    assert r.ferramentas[0]["ferramenta"] == "responder" and r.ferramentas[0]["erro"]
+    assert "555" in r.ferramentas[0]["detalhe"]
+
+
+async def test_argumento_malformado_volta_para_o_modelo_em_vez_de_virar_erro_500(monkeypatch, catalogo):
+    recebidas = modelo_roteirizado(monkeypatch, [
+        chamada("buscar_produtos", termo="laptop"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": "três", "teto_unitario": "US$ 2.000"}],
+                mensagem="ok"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "teto_unitario": 2000}], mensagem="ok"),
+    ])
+
+    r = await agente.atender("3 laptops até US$ 2.000 cada")
+
+    assert "argumentos inválidos" in recebidas[2][-1]["content"]
+    assert [(i.produto_id, i.quantidade) for i in r.itens] == [(81, 3)]
 
 
 async def test_nada_atende_devolve_sem_itens(monkeypatch, catalogo):
     modelo_roteirizado(monkeypatch, [
         chamada("buscar_produtos", termo="tractor"),
-        chamada("responder", itens=[], preco_unitario_maximo=None, mensagem="O catálogo não tem tratores."),
+        chamada("responder", itens=[], mensagem="O catálogo não tem tratores."),
     ])
 
     r = await agente.atender("Preciso de 2 tratores")
@@ -126,4 +146,38 @@ async def test_falha_do_modelo_sai_como_erro_claro_e_nao_como_exception_group(mo
     monkeypatch.setattr(llm, "completar", completar)
 
     with pytest.raises(llm.ModeloIndisponivel):
+        await agente.atender("3 laptops")
+
+
+async def test_mcp_que_cai_depois_de_conectar_sai_como_erro_claro(monkeypatch):
+    class ClienteQueFalhaAoListar:
+        """Cliente MCP de verdade (com o TaskGroup aberto) cujo list_tools falha."""
+
+        def __init__(self):
+            self._cliente = Client(catalogo_falso())
+
+        async def __aenter__(self):
+            await self._cliente.__aenter__()
+            return self
+
+        async def __aexit__(self, *exc):
+            return await self._cliente.__aexit__(*exc)
+
+        async def list_tools(self):
+            raise RuntimeError("conexão perdida no meio do protocolo")
+
+    monkeypatch.setattr(agente, "Client", lambda url: ClienteQueFalhaAoListar())
+
+    with pytest.raises(agente.CatalogoIndisponivel):
+        await agente.atender("3 laptops")
+
+
+async def test_pedido_que_passa_do_prazo_sai_como_erro_claro(monkeypatch, catalogo):
+    async def completar(mensagens, ferramentas):
+        await anyio.sleep(5)
+
+    monkeypatch.setattr(llm, "completar", completar)
+    monkeypatch.setattr(agente, "PRAZO", 0.2)
+
+    with pytest.raises(agente.AgenteDemorou):
         await agente.atender("3 laptops")

@@ -37,6 +37,8 @@ async def criar_requisicao(entrada: Pedido, response: Response) -> dict:
         raise HTTPException(502, f"O modelo de linguagem não respondeu ({e}).") from e
     except agente.AgenteSemResposta as e:
         raise HTTPException(502, f"Não consegui montar a requisição ({e}). Tente reformular o pedido.") from e
+    except agente.AgenteDemorou as e:
+        raise HTTPException(504, f"O pedido demorou demais e foi interrompido ({e}). Tente de novo.") from e
 
     corpo = {
         "numero": None,
