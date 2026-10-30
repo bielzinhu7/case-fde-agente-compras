@@ -9,6 +9,7 @@ import time
 from contextlib import asynccontextmanager
 from decimal import Decimal
 
+import psycopg
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -20,7 +21,8 @@ from app import agente, db, llm, registro, saude
 registro.configurar()
 log = logging.getLogger(__name__)
 
-ERRO_INESPERADO = "Erro inesperado ao montar a requisição. O detalhe está no log do backend."
+ERRO_INESPERADO = "Erro inesperado. O detalhe está no log do backend."
+BANCO_FORA = "Não consegui ler o banco agora. Tente de novo em alguns instantes."
 
 # Erro conhecido -> (status HTTP, evento no log, mensagem para o chat).
 ERROS = [
@@ -77,6 +79,13 @@ async def pedido_invalido(request: Request, exc: RequestValidationError) -> JSON
          "codigo": registro.pedido_id.get()},
         status_code=422,
     )
+
+
+@app.exception_handler(psycopg.OperationalError)
+async def banco_fora(request: Request, exc: psycopg.OperationalError) -> JSONResponse:
+    # Postgres fora ou recusando conexão nas leituras: é indisponibilidade, não bug. O POST trata a gravação à parte.
+    log.error("banco_indisponivel", extra={"motivo": str(exc)})
+    return JSONResponse({"detail": BANCO_FORA, "codigo": registro.pedido_id.get()}, status_code=503)
 
 
 class Pedido(BaseModel):

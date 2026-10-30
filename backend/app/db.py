@@ -60,7 +60,8 @@ CENTAVO = Decimal("0.01")
 
 
 async def _conectar() -> psycopg.AsyncConnection:
-    return await psycopg.AsyncConnection.connect(DATABASE_URL, row_factory=dict_row)
+    # Com o Postgres travado, a conexão esperaria sem fim; assim a API responde 503 em poucos segundos.
+    return await psycopg.AsyncConnection.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=5)
 
 
 async def ping() -> None:

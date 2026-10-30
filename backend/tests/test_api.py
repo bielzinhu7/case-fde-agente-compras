@@ -7,6 +7,7 @@ import json
 import logging
 from decimal import Decimal
 
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
@@ -203,3 +204,18 @@ def test_erro_nao_previsto_sai_em_json_com_codigo(monkeypatch):
     assert r.status_code == 500
     assert r.json()["codigo"] == r.headers["X-Pedido-Id"]
     assert "bug" not in r.json()["detail"]
+
+
+@pytest.mark.parametrize("caminho, leitura", [("/requisicoes", "listar"), ("/atendimentos", "listar_atendimentos")])
+def test_banco_fora_na_leitura_vira_503_com_codigo(monkeypatch, cliente, caminho, leitura):
+    """Antes saía 500 com "Erro inesperado ao montar a requisição", texto do POST num GET."""
+    async def banco_fora():
+        raise psycopg.OperationalError("connection refused")
+
+    monkeypatch.setattr(db, leitura, banco_fora)
+
+    r = cliente.get(caminho)
+
+    assert r.status_code == 503
+    assert "ler o banco" in r.json()["detail"]
+    assert r.json()["codigo"] == r.headers["X-Pedido-Id"]

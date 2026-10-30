@@ -44,6 +44,9 @@ docker compose run --rm --no-deps backend pytest   # conferência, agente, API, 
 docker run --rm -v "${PWD}:/src" -w /src python:3.13-slim sh -c "pip install -q ruff==0.17.3 && ruff check mcp-server backend"
 ```
 
+No Git Bash, ponha `MSYS_NO_PATHCONV=1` antes do `docker run` do lint: sem isso, o `-w /src` vira um caminho do
+Windows e o Docker recusa.
+
 Com tudo no ar, `docker compose exec backend python avaliacao.py` manda 5 pedidos ao modelo de verdade e mostra
 quantos ele acertou. Para ver o catálogo "fora do ar": `DUMMYJSON_TIMEOUT=0.01 docker compose up -d mcp`
 (no PowerShell, `$env:DUMMYJSON_TIMEOUT="0.01"` antes). Para voltar: `docker compose up -d mcp`, depois de
@@ -97,8 +100,8 @@ quantos ele acertou. Para ver o catálogo "fora do ar": `DUMMYJSON_TIMEOUT=0.01 
 - **Moeda:** o catálogo está em US$. Valor em reais não é convertido, porque não há câmbio confiável: o agente pede
   o valor em dólares.
 - **Parcial:** item que não existe fica de fora e o resto é gravado (`status: parcial`). A quantidade nunca muda.
-- **Erros:** catálogo fora → 503; OpenRouter → 502 com o motivo; acima de 120 s → 504. Todo erro leva o código do
-  pedido.
+- **Erros:** catálogo ou banco fora → 503; OpenRouter → 502 com o motivo; acima de 120 s → 504. Todo erro leva o
+  código do pedido.
 - **Rede:** portas só em `127.0.0.1`, porque a API gasta a chave e não tem autenticação. O MCP usa Streamable HTTP
   sem estado, com a proteção contra DNS rebinding ligada para os hosts de `MCP_ALLOWED_HOSTS`.
 - **Modelo:** `anthropic/claude-haiku-5.5`, barato e bom com ferramentas (`OPENROUTER_MODEL`). Sem framework de
