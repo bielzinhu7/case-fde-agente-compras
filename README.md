@@ -93,6 +93,8 @@ quantos ele acertou. Para ver o catálogo "fora do ar": `DUMMYJSON_TIMEOUT=0.01 
   - Vale o preço de lista.
 - **Busca literal:** na DummyJSON, "laptops" devolve 0 e "laptop" devolve 5. A ferramenta e o prompt pedem termo
   curto, em inglês e no singular.
+- **Moeda:** o catálogo está em US$. Valor em reais não é convertido, porque não há câmbio confiável: o agente pede
+  o valor em dólares.
 - **Parcial:** item que não existe fica de fora e o resto é gravado (`status: parcial`). A quantidade nunca muda.
 - **Erros:** catálogo fora → 503; OpenRouter → 502 com o motivo; acima de 120 s → 504. Todo erro leva o código do
   pedido.

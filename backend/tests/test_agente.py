@@ -301,3 +301,18 @@ async def test_quantidade_mantida_depois_de_questionada_vale(monkeypatch, catalo
     assert "não aparece escrita" in recebidas[2][-1]["content"]
     assert [i.quantidade for i in r.itens] == [6]
     assert r.status == "parcial"
+
+
+async def test_pedido_em_reais_nao_e_convertido_para_dolar(monkeypatch, catalogo):
+    tres = [{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3, "teto_unitario": 3000}]
+    faltou = [{"descricao": "3 notebooks até R$ 3.000 cada", "motivo": "o catálogo está em dólares"}]
+    recebidas = modelo_roteirizado(monkeypatch, [
+        chamada("buscar_produtos", termo="laptop"),
+        chamada("responder", itens=tres, mensagem="ok"),
+        chamada("responder", itens=[], faltou=faltou, mensagem="Me diga o teto em dólares."),
+    ])
+
+    r = await agente.atender("Preciso de 3 notebooks até R$ 3.000 cada")
+
+    assert "em reais" in recebidas[2][-1]["content"]
+    assert r.status == "nao_atendida"

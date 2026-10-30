@@ -311,3 +311,31 @@ def test_manter_uma_quantidade_nao_libera_outra():
     problemas = conferir_contra_o_pedido(proposta([item(81, 7)]), "Meia dúzia de laptops e 2 mouses", {6})
 
     assert "quantidade_pedida 7" in problemas[0]
+
+
+# --- valor em reais -----------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pedido", [
+    "Preciso de 3 notebooks até R$ 3.000 cada",
+    "3 notebooks, até 2 mil reais cada",
+    "Preciso de 3 notebooks, orçamento de R$ 9 mil",
+])
+def test_valor_em_reais_nao_vira_teto_em_dolar(pedido):
+    """Sem câmbio, R$ 3.000 virava US$ 3.000, e a requisição saía com laptops de uns R$ 6 mil cada."""
+    from app.agente import conferir_contra_o_pedido, quantidades_do_pedido, valores_do_pedido
+
+    assert valores_do_pedido(pedido) == set()
+    assert quantidades_do_pedido(pedido) == {3}
+    assert "em reais" in conferir_contra_o_pedido(proposta([item(81, 3, teto=3000)]), pedido)[0]
+    assert "em reais" in conferir_contra_o_pedido(proposta([item(81, 3)]), pedido)[0]
+    assert conferir_contra_o_pedido(proposta([]), pedido) == []
+
+
+def test_valor_em_dolar_vale_mesmo_com_reais_citados():
+    from app.agente import conferir_contra_o_pedido
+
+    pedido = "3 laptops até US$ 2.000 cada (uns R$ 11 mil)"
+
+    assert conferir_contra_o_pedido(proposta([item(81, 3, teto=2000)]), pedido) == []
+    assert "não aparece no pedido" in conferir_contra_o_pedido(proposta([item(81, 3, teto=11000)]), pedido)[0]
