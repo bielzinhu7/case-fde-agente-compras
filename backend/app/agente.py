@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
@@ -345,7 +346,7 @@ async def atender(pedido: str) -> Resultado:
             mcp = await pilha.enter_async_context(Client(MCP_URL))
             ferramentas = [_para_openai(t) for t in (await mcp.list_tools()).tools] + [RESPONDER]
         except Exception as e:
-            log.exception("falha ao falar com o servidor MCP")
+            log.exception("mcp_indisponivel")
             erro = CatalogoIndisponivel("o servidor MCP do catálogo não respondeu")
             erro.__cause__ = e
         else:
@@ -415,8 +416,10 @@ def _responder(
     detalhe = "; ".join(problemas) or None
     chamadas_log.append({"ferramenta": "responder", "argumentos": args, "erro": bool(problemas), "detalhe": detalhe})
     if problemas:
+        log.info("proposta_recusada", extra={"motivo": detalhe})
         return None, f"Proposta recusada pela conferência: {detalhe}. Corrija e chame responder de novo."
     faltou = [f.model_dump() for f in proposta.faltou]
+    log.info("proposta_aceita", extra={"itens": len(itens), "faltou": len(faltou)})
     return Resultado(itens, proposta.mensagem, chamadas_log, faltou), ""
 
 
@@ -426,10 +429,15 @@ async def _consultar_em_paralelo(mcp: Client, consultas: list[tuple]) -> list[tu
     retornos: list = [None] * len(consultas)
 
     async def consultar(i: int, nome: str, args: dict) -> None:
+        inicio = time.monotonic()
         try:
             retornos[i] = await mcp.call_tool(nome, args)
         except Exception as e:  # noqa: BLE001 - guardado aqui e tratado em _registrar, fora do TaskGroup
             retornos[i] = e
+        r = retornos[i]
+        log.info("ferramenta", extra={"ferramenta": nome, "argumentos": args,
+                                      "duracao_ms": round((time.monotonic() - inicio) * 1000),
+                                      "erro": isinstance(r, Exception) or r.is_error})
 
     async with anyio.create_task_group() as grupo:
         for i, (_, nome, args) in enumerate(consultas):
@@ -440,7 +448,7 @@ async def _consultar_em_paralelo(mcp: Client, consultas: list[tuple]) -> list[tu
 def _registrar(nome: str, args: dict, r, vistos: dict[int, dict], chamadas_log: list[dict]) -> str:
     """Registra o retorno de uma ferramenta e devolve o texto que vai para o modelo."""
     if isinstance(r, Exception):
-        log.error("falha ao chamar a ferramenta %s", nome, exc_info=r)
+        log.error("ferramenta_falhou", extra={"ferramenta": nome}, exc_info=r)
         raise CatalogoIndisponivel("o servidor MCP do catálogo parou de responder") from r
 
     texto = " ".join(getattr(c, "text", "") for c in r.content)

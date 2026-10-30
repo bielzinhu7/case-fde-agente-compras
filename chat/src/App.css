@@ -657,3 +657,10 @@ body {
     display: none;
   }
 }
+
+.codigo {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  opacity: 0.8;
+}

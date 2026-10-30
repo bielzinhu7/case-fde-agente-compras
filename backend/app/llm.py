@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 
 import anyio
 import httpx
@@ -41,7 +42,9 @@ async def completar(mensagens: list[dict], ferramentas: list[dict]) -> dict:
         "tools": ferramentas,
         "tool_choice": "required",
         "temperature": 0,
+        "usage": {"include": True},  # a OpenRouter devolve tokens e custo da chamada
     }
+    inicio = time.monotonic()
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         for tentativa in range(1, TENTATIVAS + 1):
             try:
@@ -51,7 +54,7 @@ async def completar(mensagens: list[dict], ferramentas: list[dict]) -> dict:
             except httpx.HTTPError as e:
                 raise ModeloIndisponivel(f"não foi possível conectar à OpenRouter ({type(e).__name__})") from e
             if (resp.status_code == 429 or resp.status_code >= 500) and tentativa < TENTATIVAS:
-                log.warning("OpenRouter respondeu HTTP %d; nova tentativa", resp.status_code)
+                log.warning("modelo_nova_tentativa", extra={"status_http": resp.status_code, "tentativa": tentativa})
                 await anyio.sleep(2**tentativa)
                 continue
             break
@@ -62,7 +65,7 @@ async def completar(mensagens: list[dict], ferramentas: list[dict]) -> dict:
         raise ModeloIndisponivel("a chave da OpenRouter está sem crédito")
     if resp.status_code >= 400:
         motivo = _motivo(resp)
-        log.error("OpenRouter HTTP %d com o modelo %s: %s", resp.status_code, MODELO, motivo)
+        log.error("modelo_recusou", extra={"status_http": resp.status_code, "modelo": MODELO, "motivo": motivo})
         raise ModeloIndisponivel(
             f"a OpenRouter respondeu HTTP {resp.status_code}: {motivo}. Confira o OPENROUTER_MODEL ({MODELO})"
         )
@@ -75,5 +78,14 @@ async def completar(mensagens: list[dict], ferramentas: list[dict]) -> dict:
     if "error" in dados or not dados.get("choices"):
         raise ModeloIndisponivel(f"a OpenRouter devolveu erro: {_motivo(resp)}")
     msg = dados["choices"][0]["message"]
+    uso = dados.get("usage") or {}
+    log.info("modelo", extra={
+        "modelo": MODELO,
+        "duracao_ms": round((time.monotonic() - inicio) * 1000),
+        "tokens_entrada": uso.get("prompt_tokens"),
+        "tokens_saida": uso.get("completion_tokens"),
+        "custo_usd": uso.get("cost"),
+        "pediu": [c["function"]["name"] for c in msg.get("tool_calls") or []],
+    })
     # Só o que a próxima chamada precisa; campos extras de alguns provedores ficam de fora.
     return {"role": "assistant", "content": msg.get("content") or "", "tool_calls": msg.get("tool_calls") or []}

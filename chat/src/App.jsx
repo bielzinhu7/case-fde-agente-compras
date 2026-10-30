@@ -49,7 +49,7 @@ async function enviarPedido(pedido) {
   }
   const corpo = await resp.json().catch(() => null);
   if (!resp.ok) {
-    if (typeof corpo?.detail === "string") return { erro: corpo.detail };
+    if (typeof corpo?.detail === "string") return { erro: corpo.detail, codigo: corpo.codigo };
     return { erro: ERRO_SEM_DETALHE[resp.status] ?? `O backend respondeu HTTP ${resp.status}.` };
   }
   return { requisicao: corpo };
@@ -204,11 +204,12 @@ function BoasVindas({ aoEscolher }) {
   );
 }
 
-function Resposta({ erro, requisicao, hora, pedido, ocupado, aoTentarDeNovo }) {
+function Resposta({ erro, codigo, requisicao, hora, pedido, ocupado, aoTentarDeNovo }) {
   if (erro) {
     return (
       <div className="balao agente erro">
         <strong>Não deu certo.</strong> {erro}
+        {codigo && <div className="codigo">Código do erro: {codigo}</div>}
         {pedido && (
           <div>
             <button className="tentar" onClick={aoTentarDeNovo} disabled={ocupado}>
