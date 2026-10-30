@@ -324,7 +324,13 @@ def quantidades_do_pedido(pedido: str) -> set[int] | None:
     return numeros | palavras
 
 
-def conferir_contra_o_pedido(proposta: "Proposta", pedido: str) -> list[str]:
+def conferir_contra_o_pedido(proposta: "Proposta", pedido: str, questionadas: set[int] | None = None) -> list[str]:
+    """Confere teto e quantidade declarados pelo modelo contra o texto do pedido.
+
+    Quantidade que não aparece escrita é questionada uma vez e vale se o modelo a mantiver: "meia dúzia de
+    smartphones e 2 carregadores" ou "2 para cada um dos 3 gerentes" estão certas e não dá para conferir só pelo
+    texto. `questionadas` guarda as já questionadas na conversa."""
+    questionadas = set() if questionadas is None else questionadas
     valores = valores_do_pedido(pedido)
     quantidades = quantidades_do_pedido(pedido)
     tetos = [i.teto_unitario for i in proposta.itens if i.teto_unitario is not None]
@@ -339,10 +345,14 @@ def conferir_contra_o_pedido(proposta: "Proposta", pedido: str) -> list[str]:
         problemas.append("o pedido cita um valor em dinheiro: informe-o em teto_unitario (por unidade) ou em "
                          "teto_total (pedido inteiro)")
     if quantidades is not None:
+        fora = [i for i in proposta.itens if i.quantidade_pedida not in quantidades | questionadas]
         problemas += [
-            f"produto {i.produto_id}: a quantidade_pedida {i.quantidade_pedida} não aparece no pedido"
-            for i in proposta.itens if i.quantidade_pedida not in quantidades
+            f"produto {i.produto_id}: a quantidade_pedida {i.quantidade_pedida} não aparece escrita no pedido. Se a "
+            "pessoa pediu essa quantidade de outro jeito (\"meia dúzia\", \"2 para cada um dos 3\"), mantenha; se ela "
+            "escreveu outra, use a dela; se não disse quantos, deixe o item em faltou"
+            for i in fora
         ]
+        questionadas.update(i.quantidade_pedida for i in fora)
     return problemas
 
 
@@ -430,6 +440,7 @@ async def atender(pedido: str) -> Resultado:
 async def _conversar(mcp: Client, ferramentas: list[dict], pedido: str) -> Resultado:
     chamadas_log: list[dict] = []
     vistos: dict[int, dict] = {}
+    questionadas: set[int] = set()
     mensagens = [{"role": "system", "content": PROMPT}, {"role": "user", "content": pedido}]
 
     for _ in range(MAX_PASSOS):
@@ -450,7 +461,7 @@ async def _conversar(mcp: Client, ferramentas: list[dict], pedido: str) -> Resul
             if args is None:
                 conteudo = "Argumentos inválidos: envie um JSON."
             elif nome == "responder":
-                resultado, conteudo = _responder(args, pedido, vistos, chamadas_log)
+                resultado, conteudo = _responder(args, pedido, vistos, chamadas_log, questionadas)
                 if resultado:
                     return resultado
             else:
@@ -468,13 +479,13 @@ def _argumentos(chamada: dict) -> dict | None:
 
 
 def _responder(
-    args: dict, pedido: str, vistos: dict[int, dict], chamadas_log: list[dict]
+    args: dict, pedido: str, vistos: dict[int, dict], chamadas_log: list[dict], questionadas: set[int]
 ) -> tuple[Resultado | None, str]:
     """Confere a proposta final. Devolve (resultado, "") se ela passa, ou (None, motivo) para o modelo corrigir."""
     try:
         proposta = Proposta.model_validate(args)
         itens, problemas = conferir_itens(proposta.itens, vistos, proposta.teto_total)
-        problemas = conferir_contra_o_pedido(proposta, pedido) + problemas
+        problemas = conferir_contra_o_pedido(proposta, pedido, questionadas) + problemas
         if not problemas:
             textos = [proposta.mensagem] + [f.motivo for f in proposta.faltou]
             problemas = conferir_valores_citados(textos, _valores_conhecidos(pedido, proposta, itens, vistos))

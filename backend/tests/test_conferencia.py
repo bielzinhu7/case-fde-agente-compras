@@ -2,6 +2,8 @@
 
 from decimal import Decimal
 
+import pytest
+
 from app.agente import ItemProposto, conferir_itens, conferir_valores_citados, registrar_produtos
 
 MACBOOK = {"id": 78, "titulo": "Apple MacBook Pro 14 Inch Space Grey", "categoria": "laptops", "preco": 1999.99,
@@ -284,3 +286,28 @@ def test_quantidade_por_extenso_nao_trava_o_pedido():
     assert conferir_contra_o_pedido(proposta([item(81, 6)]), "Preciso de meia dúzia de cadeiras") == []
     assert conferir_contra_o_pedido(proposta([item(81, 20)]), "Preciso de vinte laptops") == []
     assert conferir_contra_o_pedido(proposta([item(81, 3)]), "Preciso de três laptops e 2 monitores") == []
+
+
+@pytest.mark.parametrize("pedido, quantidade", [
+    ("Preciso de meia dúzia de smartphones e 2 carregadores", 6),
+    ("Uma dúzia de canetas e 3 cadernos", 12),
+    ("2 laptops para cada um dos 3 gerentes", 6),
+])
+def test_quantidade_que_nao_aparece_escrita_e_questionada_uma_vez(pedido, quantidade):
+    """Nos três o modelo está certo. Antes a recusa se repetia até esgotar os passos e o pedido virava 502."""
+    from app.agente import conferir_contra_o_pedido
+
+    questionadas = set()
+    primeira = conferir_contra_o_pedido(proposta([item(81, quantidade)]), pedido, questionadas)
+    segunda = conferir_contra_o_pedido(proposta([item(81, quantidade)]), pedido, questionadas)
+
+    assert f"quantidade_pedida {quantidade} não aparece escrita" in primeira[0]
+    assert segunda == []
+
+
+def test_manter_uma_quantidade_nao_libera_outra():
+    from app.agente import conferir_contra_o_pedido
+
+    problemas = conferir_contra_o_pedido(proposta([item(81, 7)]), "Meia dúzia de laptops e 2 mouses", {6})
+
+    assert "quantidade_pedida 7" in problemas[0]

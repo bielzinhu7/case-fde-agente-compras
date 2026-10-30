@@ -284,3 +284,20 @@ async def test_quantidade_mudada_por_causa_do_minimo_volta_para_o_modelo(monkeyp
 
     assert "pediu 3" in recebidas[2][-1]["content"]
     assert [i.quantidade for i in r.itens] == [3]
+
+
+async def test_quantidade_mantida_depois_de_questionada_vale(monkeypatch, catalogo):
+    """ "Meia dúzia" com outro número no pedido: a conferência pergunta uma vez e aceita quando o modelo mantém."""
+    seis = [{"produto_id": 81, "quantidade": 6, "quantidade_pedida": 6}]
+    faltou = [{"descricao": "2 mouses", "motivo": "não existe no catálogo"}]
+    recebidas = modelo_roteirizado(monkeypatch, [
+        chamada("buscar_produtos", termo="laptop"),
+        chamada("responder", itens=seis, faltou=faltou, mensagem="ok"),
+        chamada("responder", itens=seis, faltou=faltou, mensagem="ok"),
+    ])
+
+    r = await agente.atender("Preciso de meia dúzia de laptops e 2 mouses")
+
+    assert "não aparece escrita" in recebidas[2][-1]["content"]
+    assert [i.quantidade for i in r.itens] == [6]
+    assert r.status == "parcial"
