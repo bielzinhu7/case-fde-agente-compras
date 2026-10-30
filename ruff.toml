@@ -4,6 +4,8 @@ extend-exclude = [".venv"]
 
 [lint]
 extend-select = ["B", "E501"]
+# Pasta do Windows montada num container faz todo arquivo parecer executável; no git eles não são.
+ignore = ["EXE002"]
 
 [lint.isort]
 known-first-party = ["app", "catalogo"]
