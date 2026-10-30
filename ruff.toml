@@ -1,0 +1,9 @@
+line-length = 120
+target-version = "py313"
+extend-exclude = [".venv"]
+
+[lint]
+extend-select = ["B"]
+
+[lint.isort]
+known-first-party = ["app", "catalogo"]

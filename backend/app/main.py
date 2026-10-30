@@ -30,11 +30,13 @@ async def criar_requisicao(entrada: Pedido, response: Response) -> dict:
     try:
         resultado = await agente.atender(pedido)
     except agente.CatalogoIndisponivel as e:
-        raise HTTPException(503, f"Não consegui consultar o catálogo de produtos agora ({e}). Tente de novo em alguns instantes.")
+        raise HTTPException(
+            503, f"Não consegui consultar o catálogo de produtos agora ({e}). Tente de novo em alguns instantes."
+        ) from e
     except llm.ModeloIndisponivel as e:
-        raise HTTPException(502, f"O modelo de linguagem não respondeu ({e}).")
+        raise HTTPException(502, f"O modelo de linguagem não respondeu ({e}).") from e
     except agente.AgenteSemResposta as e:
-        raise HTTPException(502, f"Não consegui montar a requisição ({e}). Tente reformular o pedido.")
+        raise HTTPException(502, f"Não consegui montar a requisição ({e}). Tente reformular o pedido.") from e
 
     corpo = {
         "numero": None,

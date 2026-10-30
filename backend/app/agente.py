@@ -105,7 +105,7 @@ class Resultado:
 
     @property
     def total(self) -> Decimal:
-        return sum((i.subtotal for i in self.itens), Decimal("0"))
+        return sum((i.subtotal for i in self.itens), Decimal(0))
 
 
 def registrar_produtos(vistos: dict[int, dict], ferramenta: str, conteudo: dict) -> None:
