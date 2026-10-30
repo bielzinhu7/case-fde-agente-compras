@@ -13,7 +13,9 @@ from starlette.responses import JSONResponse
 from catalogo import dummyjson
 from catalogo.dummyjson import CatalogoIndisponivel, ProdutoNaoEncontrado
 
-LIMITE_BUSCA = int(os.getenv("LIMITE_BUSCA", "20"))
+# O catálogo tem perto de 200 produtos e a busca devolve só campos curtos: 50 cabem com folga e evitam que
+# um termo amplo ("phone") traga só acessórios baratos.
+LIMITE_BUSCA = int(os.getenv("LIMITE_BUSCA", "50"))
 
 mcp = MCPServer(
     name="catalogo",

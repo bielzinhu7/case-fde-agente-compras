@@ -4,6 +4,7 @@ services:
     environment:
       DUMMYJSON_URL: ${DUMMYJSON_URL:-https://dummyjson.com}
       DUMMYJSON_TIMEOUT: ${DUMMYJSON_TIMEOUT:-5}
+      LIMITE_BUSCA: ${LIMITE_BUSCA:-50}
       MCP_ALLOWED_HOSTS: localhost:*,127.0.0.1:*,mcp:*
     # Só para chamar as ferramentas direto do host (ex.: MCP Inspector); o backend usa a rede interna.
     ports:
@@ -33,6 +34,9 @@ services:
     environment:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-haiku-5.5}
+      OPENROUTER_TIMEOUT: ${OPENROUTER_TIMEOUT:-30}
+      AGENTE_PRAZO: ${AGENTE_PRAZO:-120}
+      AGENTE_MAX_PASSOS: ${AGENTE_MAX_PASSOS:-12}
       MCP_URL: http://mcp:8000/mcp
       DATABASE_URL: postgresql://compras:compras@postgres:5432/compras
     # Só em 127.0.0.1: a API gasta a chave da OpenRouter e não tem autenticação.

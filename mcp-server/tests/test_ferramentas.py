@@ -86,7 +86,7 @@ async def test_buscar_produtos_devolve_os_produtos_resumidos():
     assert r.structured_content == {"termo": "laptop", "total": 1, "produtos": [RESUMO_MACBOOK]}
     params = rota.calls.last.request.url.params
     assert params["q"] == "laptop"
-    assert params["limit"] == "20"
+    assert params["limit"] == "50"
     assert (params["sortBy"], params["order"]) == ("price", "asc")
 
 
