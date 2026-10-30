@@ -67,7 +67,7 @@ backend confere a proposta e grava.
 - **Modelo:** `anthropic/claude-haiku-5.5`, barato e bom com ferramentas; troca em `OPENROUTER_MODEL`.
   Sem framework de agentes: o laço é curto e fica à vista.
 
-Ficou de fora o diferencial `criar_requisicao`: o requisito pede que o backend grave, e o agente já decide
+Deixamos de fora o diferencial `criar_requisicao`: o requisito pede que o backend grave, e o agente já decide
 quando encerrar ao chamar `responder`. Passar a gravação para o MCP poria duas peças escrevendo no banco,
 sem ganho na garantia de não inventar. Também não há conversa com várias mensagens (cada pedido é
 atendido de uma vez), autenticação nem deploy. Diferenciais feitos: ferramentas chamadas visíveis no chat,
@@ -75,11 +75,12 @@ o script dos 5 pedidos e CI com lint e testes.
 
 ## Uso de IA
 
-Fiz este case em par com o Claude Code (modelo Claude Opus 5.5, da Anthropic). Ele escreveu o código, os
-testes e este README; por isso os commits trazem `Co-Authored-By: Claude`.
+Fizemos este case em par: eu e o Claude Code (modelo Claude Opus 5.5, da Anthropic). O Claude escreveu o
+código e os testes, por isso os commits trazem `Co-Authored-By: Claude`. Este README escrevemos juntos: as
+decisões que ele registra são minhas, a redação é do Claude.
 
-As decisões foram minhas: pedi primeiro uma análise do PDF e dos dados da DummyJSON antes de qualquer
-código, escolhi Python, defini a ordem de trabalho (uma versão mínima de ponta a ponta antes de refinar),
-decidi o escopo seguindo o documento (o `criar_requisicao` ficou de fora) e a regra do atendimento
-parcial. Cada etapa foi testada de ponta a ponta antes do commit; os problemas que apareceram no caminho,
-como a busca literal da DummyJSON e erros que só surgiram com tudo rodando junto, estão nos commits.
+Como trabalhamos: pedi primeiro uma análise do PDF e dos dados da DummyJSON, antes de qualquer código;
+escolhi Python; combinamos a ordem (uma versão mínima de ponta a ponta antes de refinar); decidi o escopo
+seguindo o documento (o `criar_requisicao` ficou de fora) e a regra do atendimento parcial. Cada etapa foi
+testada de ponta a ponta antes do commit, e os problemas que apareceram no caminho, como a busca literal da
+DummyJSON e erros que só surgiram com tudo rodando junto, estão nos commits.
