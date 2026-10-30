@@ -34,13 +34,17 @@ unidade, e um preço igual ao teto atende.
 - Se mais de um produto atender, escolha o de menor preço e use o mesmo produto para todas as unidades, \
 salvo se o pedido disser outra coisa.
 - Nunca invente produto, preço ou estoque: use só o que as ferramentas devolveram.
-- Se só parte do pedido puder ser atendida, proponha essa parte e diga o que ficou de fora. Se nada \
-atender, não proponha itens e diga com clareza o que faltou.
+- Se o pedido citar um produto ou uma marca específica, não troque por outro.
+- Se um dos itens pedidos não existir no catálogo ou não couber no orçamento, proponha os outros e diga o \
+que ficou de fora. Se nenhum produto adequado tiver estoque para a quantidade pedida, não reduza a \
+quantidade: deixe esse item de fora e explique. Se nada atender, não proponha itens e diga com clareza o que \
+faltou.
 
 Para terminar, chame responder com os itens escolhidos (lista vazia se nada atende) e uma mensagem em \
 português de no máximo duas frases: o que foi escolhido e por quê, ou o que faltou. Na mensagem, afirme só \
-o que as ferramentas devolveram e não compare com produtos que você não detalhou. Não escreva preços nem \
-total: o sistema mostra a tabela com os valores conferidos."""
+o que as ferramentas devolveram e não compare com produtos que você não detalhou. Não ofereça o que você \
+não pode fazer: cada pedido é atendido de uma vez, sem continuação, e você não fala com fornecedores. Não \
+escreva preços nem total: o sistema mostra a tabela com os valores conferidos."""
 
 RESPONDER = {
     "type": "function",
