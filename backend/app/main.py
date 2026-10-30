@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app import agente, db, llm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -39,6 +40,10 @@ async def criar_requisicao(entrada: Pedido, response: Response) -> dict:
         raise HTTPException(502, f"Não consegui montar a requisição ({e}). Tente reformular o pedido.") from e
     except agente.AgenteDemorou as e:
         raise HTTPException(504, f"O pedido demorou demais e foi interrompido ({e}). Tente de novo.") from e
+    except Exception as e:
+        # Bug ou falha não prevista: o log guarda o rastro e o chat recebe uma frase, não "Internal Server Error".
+        log.exception("erro inesperado ao atender o pedido")
+        raise HTTPException(500, "Erro inesperado ao montar a requisição. O detalhe está no log do backend.") from e
 
     corpo = {
         "numero": None,
