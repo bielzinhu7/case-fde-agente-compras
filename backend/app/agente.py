@@ -262,8 +262,8 @@ def conferir_itens(
     return ([] if problemas else itens), problemas
 
 
-# Valor em dinheiro citado no texto: "US$ 1.099,99", "US$ 2.000", "$1,099.99".
-_DINHEIRO = re.compile(r"(?:US\$|R\$|\$)\s*(\d[\d.,]*\d|\d)")
+# Valor em dinheiro citado no texto: "US$ 1.099,99", "US$ 2.000", "$1,099.99", "USD 999".
+_DINHEIRO = re.compile(r"(?:US\$|R\$|\$|\b(?:USD|usd))\s*(\d[\d.,]*\d|\d)")
 
 
 def _ler_valor(numero: str) -> Decimal | None:
@@ -286,7 +286,8 @@ def conferir_valores_citados(textos: list[str], conhecidos: set[Decimal]) -> lis
     """Todo valor em dinheiro do texto tem que ser um preço do catálogo, um valor do pedido ou o total calculado."""
     problemas = []
     for texto in textos:
-        for numero in _DINHEIRO.findall(texto):
+        # "US$ 999" e "999 dólares" são o mesmo valor; repetido, ele vira uma só recusa.
+        for numero in dict.fromkeys(_DINHEIRO.findall(texto) + _DOLARES.findall(texto)):
             valor = _ler_valor(numero)
             if valor is not None and not any(abs(valor - c) <= Decimal("0.01") for c in conhecidos):
                 problemas.append(
@@ -310,7 +311,7 @@ PEDIDO_EM_REAIS = (
 # Valor que não é limite: piso ("acima de US$ 1.000") ou referência ("o último custou US$ 2.500").
 _NAO_E_LIMITE = re.compile(
     r"(?:acima de|a partir de|mais de|mais que|maior que|superior a|m[ií]nimo de|no m[ií]nimo|pelo menos|custou|"
-    r"custava|paguei|pagamos)\s+(?:US\$|\$)?\s*\d[\d.,]*(?:\s*(?:mil|k|d[oó]lares|usd)\b)?",
+    r"custava|paguei|pagamos)\s+(?:US\$|\$|USD)?\s*\d[\d.,]*(?:\s*(?:mil|k|d[oó]lares|usd)\b)?",
     re.IGNORECASE,
 )
 # Número sem moeda depois de "até", "máximo", "orçamento", "teto" ou "limite" ("até 2000 cada") vale como teto,

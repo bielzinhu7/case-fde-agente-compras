@@ -373,3 +373,20 @@ def test_numero_sem_moeda_nao_obriga_a_declarar_teto():
     from app.agente import conferir_contra_o_pedido
 
     assert conferir_contra_o_pedido(proposta([item(81, 3)]), "3 laptops com entrega em até 10 dias") == []
+
+
+@pytest.mark.parametrize("texto", ["custa 999 dólares", "custa USD 999", "custa 999 USD"])
+def test_valor_citado_sem_cifrao_tambem_e_conferido(texto):
+    """Antes só o "$" era lido: "999 dólares" passava sem conferência."""
+    assert "999" in conferir_valores_citados([texto], {Decimal("1099.99")})[0]
+
+
+def test_mesmo_valor_escrito_de_dois_jeitos_vira_uma_recusa():
+    assert len(conferir_valores_citados(["US$ 999 (999 dólares)"], {Decimal("1099.99")})) == 1
+    assert conferir_valores_citados(["custa 1.099,99 dólares ou USD 1099.99"], {Decimal("1099.99")}) == []
+
+
+def test_valor_em_usd_no_pedido_vale_como_teto():
+    from app.agente import conferir_contra_o_pedido
+
+    assert conferir_contra_o_pedido(proposta([item(81, 3, teto=2000)]), "3 laptops até USD 2000 cada") == []
