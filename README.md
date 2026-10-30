@@ -81,7 +81,8 @@ quantos ele acertou. Para ver o catálogo "fora do ar": `DUMMYJSON_TIMEOUT=0.01 
     - produto devolvido por uma ferramenta na conversa;
     - preço e título do catálogo;
     - estoque e quantidade mínima;
-    - teto do item e orçamento total, com o teto conferido contra o valor escrito no pedido;
+    - teto do item e orçamento total, com o teto conferido contra o limite escrito no pedido (piso, como "acima
+      de US$ 1.000", não conta);
     - quantidade igual à pedida. A que não aparece escrita no pedido ("meia dúzia", "2 para cada um dos 3") é
       questionada uma vez e vale se o modelo a mantiver;
     - total calculado no código;

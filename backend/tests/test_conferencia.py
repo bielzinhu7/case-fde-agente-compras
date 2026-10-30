@@ -339,3 +339,37 @@ def test_valor_em_dolar_vale_mesmo_com_reais_citados():
 
     assert conferir_contra_o_pedido(proposta([item(81, 3, teto=2000)]), pedido) == []
     assert "não aparece no pedido" in conferir_contra_o_pedido(proposta([item(81, 3, teto=11000)]), pedido)[0]
+
+
+# --- o que conta como teto ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pedido", [
+    "Preciso de 3 laptops acima de US$ 1.000",
+    "Preciso de 3 laptops; o último custou US$ 2.500",
+    "3 laptops de pelo menos 2 mil dólares",
+])
+def test_piso_e_preco_de_referencia_nao_viram_teto(pedido):
+    """Antes, todo valor em dinheiro obrigava a declarar teto, e o piso acabava virando teto."""
+    from app.agente import conferir_contra_o_pedido
+
+    com_piso_como_teto = conferir_contra_o_pedido(proposta([item(81, 3, teto=1000)]), pedido)
+
+    assert conferir_contra_o_pedido(proposta([item(81, 3)]), pedido) == []
+    assert "não aparece no pedido como limite" in com_piso_como_teto[0]
+
+
+@pytest.mark.parametrize("pedido", ["3 laptops até 2000 cada", "3 laptops, no máximo 2.000 cada"])
+def test_numero_sem_moeda_depois_de_ate_vale_como_teto(pedido):
+    """Antes, o 2000 sem "US$" não era lido: o teto declarado era recusado e o modelo acabava sem teto."""
+    from app.agente import conferir_contra_o_pedido
+
+    assert conferir_contra_o_pedido(proposta([item(81, 3, teto=2000)]), pedido) == []
+    assert "não aparece no pedido" in conferir_contra_o_pedido(proposta([item(81, 3, teto=5000)]), pedido)[0]
+
+
+def test_numero_sem_moeda_nao_obriga_a_declarar_teto():
+    """ "Até 10 dias" também casa com "até <número>": vale como teto se o modelo declarar, mas não é exigido."""
+    from app.agente import conferir_contra_o_pedido
+
+    assert conferir_contra_o_pedido(proposta([item(81, 3)]), "3 laptops com entrega em até 10 dias") == []

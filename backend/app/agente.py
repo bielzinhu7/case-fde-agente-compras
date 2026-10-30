@@ -55,7 +55,8 @@ que ficou de fora. Se nada atender, não proponha itens e diga com clareza o que
 
 Para terminar, chame responder com os itens escolhidos (lista vazia se nada atende). Em cada item, ponha em \
 quantidade_pedida a quantidade que a pessoa pediu, e em teto_unitario o teto por unidade que o pedido deu \
-para aquele item (omita se não deu). Se o pedido deu um orçamento para o pedido inteiro, ponha em teto_total. \
+para aquele item (omita se não deu; piso e preço de referência, como "acima de US$ 1.000" ou "o último custou \
+US$ 2.500", não são teto). Se o pedido deu um orçamento para o pedido inteiro, ponha em teto_total. \
 Em faltou, liste cada coisa pedida que ficou de fora e o motivo (não \
 existe no catálogo, passa do teto, falta estoque, quantidade mínima maior que a pedida); deixe vazio se nada \
 faltou. A mensagem é em português, de no máximo duas frases: o que foi escolhido e por quê, ou o que faltou. \
@@ -306,6 +307,17 @@ PEDIDO_EM_REAIS = (
     "o pedido dá o valor em reais e o catálogo está em US$. Não converta, porque aqui não há câmbio: não proponha "
     "itens nem teto, e diga em faltou que o valor precisa vir em dólares"
 )
+# Valor que não é limite: piso ("acima de US$ 1.000") ou referência ("o último custou US$ 2.500").
+_NAO_E_LIMITE = re.compile(
+    r"(?:acima de|a partir de|mais de|mais que|maior que|superior a|m[ií]nimo de|no m[ií]nimo|pelo menos|custou|"
+    r"custava|paguei|pagamos)\s+(?:US\$|\$)?\s*\d[\d.,]*(?:\s*(?:mil|k|d[oó]lares|usd)\b)?",
+    re.IGNORECASE,
+)
+# Número sem moeda depois de "até", "máximo", "orçamento", "teto" ou "limite" ("até 2000 cada") vale como teto,
+# mas não obriga a declarar um: "entrega em até 10 dias" também casa aqui.
+_LIMITE_SEM_MOEDA = re.compile(
+    r"\b(?:até|m[áa]ximo|or[çc]amento|teto|limite)(?:\s+(?:total|de|do))*\s+(\d[\d.,]*)", re.IGNORECASE
+)
 _INTEIRO = re.compile(r"\b\d+\b")
 _POR_EXTENSO = {"um": 1, "uma": 1, "dois": 2, "duas": 2, "três": 3, "tres": 3, "quatro": 4, "cinco": 5,
                 "seis": 6, "sete": 7, "oito": 8, "nove": 9, "dez": 10}
@@ -341,7 +353,8 @@ def conferir_contra_o_pedido(proposta: "Proposta", pedido: str, questionadas: se
     smartphones e 2 carregadores" ou "2 para cada um dos 3 gerentes" estão certas e não dá para conferir só pelo
     texto. `questionadas` guarda as já questionadas na conversa."""
     questionadas = set() if questionadas is None else questionadas
-    valores = valores_do_pedido(pedido)
+    limites = valores_do_pedido(_NAO_E_LIMITE.sub(" ", pedido))
+    aceitos = limites | {v for n in _LIMITE_SEM_MOEDA.findall(pedido) if (v := _ler_valor(n)) is not None}
     quantidades = quantidades_do_pedido(pedido)
     tetos = [i.teto_unitario for i in proposta.itens if i.teto_unitario is not None]
     if proposta.teto_total is not None:
@@ -352,11 +365,12 @@ def conferir_contra_o_pedido(proposta: "Proposta", pedido: str, questionadas: se
         return [PEDIDO_EM_REAIS] if proposta.itens or tetos else []
 
     problemas = [
-        f"o teto US$ {t} não aparece no pedido; use o valor que a pessoa escreveu"
-        for t in tetos if not any(abs(t - v) <= Decimal("0.01") for v in valores)
+        f"o teto US$ {t} não aparece no pedido como limite; use o valor que a pessoa deu como teto, ou omita se ela "
+        "não deu"
+        for t in tetos if not any(abs(t - v) <= Decimal("0.01") for v in aceitos)
     ]
-    if valores and proposta.itens and not tetos:
-        problemas.append("o pedido cita um valor em dinheiro: informe-o em teto_unitario (por unidade) ou em "
+    if limites and proposta.itens and not tetos:
+        problemas.append("o pedido dá um limite em dinheiro: informe-o em teto_unitario (por unidade) ou em "
                          "teto_total (pedido inteiro)")
     if quantidades is not None:
         fora = [i for i in proposta.itens if i.quantidade_pedida not in quantidades | questionadas]
