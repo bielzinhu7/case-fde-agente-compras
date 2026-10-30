@@ -74,7 +74,7 @@ ver o catálogo fora do ar: `DUMMYJSON_TIMEOUT=0.01 docker compose up -d mcp` (n
 - **Fora do escopo:** o diferencial `criar_requisicao`, porque passar a gravação para o MCP poria duas peças
   escrevendo no banco, sem ganho na garantia de não inventar; conversa com várias mensagens; autenticação; deploy.
   Diferenciais feitos: ferramentas chamadas visíveis no chat, o script dos 5 pedidos e o CI com lint e testes
-  (`.github/workflows/ci.yml`), que rodou verde no GitHub Actions, num repositório privado.
+  (`.github/workflows/ci.yml`), que rodou verde no GitHub Actions.
 
 ## Uso de IA
 
