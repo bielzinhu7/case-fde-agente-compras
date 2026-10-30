@@ -4,10 +4,16 @@ from decimal import Decimal
 
 from app.agente import ItemProposto, conferir_itens, registrar_produtos
 
-MACBOOK = {"id": 78, "titulo": "Apple MacBook Pro 14 Inch Space Grey", "preco": 1999.99, "estoque": 24,
-           "quantidade_minima": 1}
-LENOVO = {"id": 81, "titulo": "Lenovo Yoga 920", "preco": 1099.99, "estoque": 2, "quantidade_minima": 1}
-REALME = {"id": 128, "titulo": "Realme C35", "preco": 149.99, "estoque": 48, "quantidade_minima": 3}
+MACBOOK = {"id": 78, "titulo": "Apple MacBook Pro 14 Inch Space Grey", "categoria": "laptops", "preco": 1999.99,
+           "estoque": 24, "quantidade_minima": 1}
+HUAWEI = {"id": 80, "titulo": "Huawei Matebook X Pro", "categoria": "laptops", "preco": 1399.99, "estoque": 75,
+          "quantidade_minima": 1}
+LENOVO = {"id": 81, "titulo": "Lenovo Yoga 920", "categoria": "laptops", "preco": 1099.99, "estoque": 2,
+          "quantidade_minima": 1}
+REALME = {"id": 128, "titulo": "Realme C35", "categoria": "smartphones", "preco": 149.99, "estoque": 48,
+          "quantidade_minima": 3}
+PAU_DE_SELFIE = {"id": 111, "titulo": "Selfie Stick Monopod", "categoria": "mobile-accessories", "preco": 12.99,
+                 "estoque": 11, "quantidade_minima": 1}
 
 
 def vistos(*produtos):
@@ -16,8 +22,8 @@ def vistos(*produtos):
     return v
 
 
-def item(produto_id, quantidade, teto=None):
-    return ItemProposto(produto_id=produto_id, quantidade=quantidade, teto_unitario=teto)
+def item(produto_id, quantidade, teto=None, motivo=None):
+    return ItemProposto(produto_id=produto_id, quantidade=quantidade, teto_unitario=teto, motivo_escolha=motivo)
 
 
 def test_monta_itens_com_preco_do_catalogo():
@@ -86,3 +92,42 @@ def test_detalhe_mais_recente_prevalece_sobre_a_busca():
     _, problemas = conferir_itens([item(78, 3)], v)
 
     assert "2 em estoque" in problemas[0]
+
+
+# --- regra de escolha: o mais barato que atende ------------------------------------------------------
+
+
+def test_recusa_quando_ha_opcao_mais_barata_da_mesma_categoria():
+    """O agente propôs o Huawei dizendo ser o mais barato; o Lenovo custa menos e atende."""
+    lenovo_com_estoque = {**LENOVO, "estoque": 40}
+    itens, problemas = conferir_itens([item(80, 3, teto=2000)], vistos(MACBOOK, HUAWEI, lenovo_com_estoque))
+
+    assert itens == []
+    assert "Lenovo Yoga 920" in problemas[0] and "mais barato" in problemas[0]
+
+
+def test_motivo_escolha_libera_produto_mais_caro():
+    lenovo_com_estoque = {**LENOVO, "estoque": 40}
+    itens, problemas = conferir_itens(
+        [item(80, 3, teto=2000, motivo="o pedido pediu Huawei")], vistos(HUAWEI, lenovo_com_estoque)
+    )
+
+    assert problemas == []
+    assert [i.produto_id for i in itens] == [80]
+
+
+def test_produto_de_outra_categoria_nao_conta_como_opcao():
+    """A busca por "smartphone" traz um pau de selfie mais barato; ele não é alternativa a um celular."""
+    _, problemas = conferir_itens([item(128, 4, teto=300)], vistos(REALME, PAU_DE_SELFIE))
+
+    assert problemas == []
+
+
+def test_opcao_mais_barata_sem_estoque_ou_acima_do_teto_nao_conta():
+    # Lenovo tem só 2 em estoque: não atende 3 unidades, então o Huawei é o mais barato que atende.
+    _, problemas = conferir_itens([item(80, 3, teto=2000)], vistos(HUAWEI, LENOVO))
+    assert problemas == []
+
+    # Com teto de US$ 1.000, nenhum laptop atende; o problema é o teto, não a escolha.
+    _, problemas = conferir_itens([item(80, 3, teto=1000)], vistos(HUAWEI, {**LENOVO, "estoque": 40}))
+    assert len(problemas) == 1 and "teto" in problemas[0]

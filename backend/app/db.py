@@ -7,6 +7,7 @@ from decimal import Decimal
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from app.agente import Resultado
 
@@ -32,6 +33,9 @@ CREATE TABLE IF NOT EXISTS itens_requisicao (
     preco_unitario  NUMERIC(12, 2) NOT NULL,
     subtotal        NUMERIC(12, 2) NOT NULL
 );
+-- Colunas que chegaram depois: ALTER também atualiza um volume criado por uma versão anterior.
+ALTER TABLE requisicoes ADD COLUMN IF NOT EXISTS status TEXT  NOT NULL DEFAULT 'criada';
+ALTER TABLE requisicoes ADD COLUMN IF NOT EXISTS faltou JSONB NOT NULL DEFAULT '[]';
 """
 
 CENTAVO = Decimal("0.01")
@@ -58,8 +62,10 @@ async def criar_tabelas(tentativas: int = 15) -> None:
 async def salvar(pedido: str, resultado: Resultado, modelo: str) -> int:
     async with await _conectar() as con, con.transaction():
         cur = await con.execute(
-            "INSERT INTO requisicoes (pedido, mensagem, total, modelo) VALUES (%s, %s, %s, %s) RETURNING id",
-            (pedido, resultado.mensagem, resultado.total.quantize(CENTAVO), modelo),
+            "INSERT INTO requisicoes (pedido, mensagem, total, modelo, status, faltou)"
+            " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            (pedido, resultado.mensagem, resultado.total.quantize(CENTAVO), modelo, resultado.status,
+             Jsonb(resultado.faltou)),
         )
         numero = (await cur.fetchone())["id"]
         async with con.cursor() as c:
@@ -78,7 +84,7 @@ async def listar(limite: int = 100) -> list[dict]:
     async with await _conectar() as con:
         cur = await con.execute(
             """
-            SELECT r.id AS numero, r.pedido, r.mensagem, r.total, r.modelo, r.criada_em,
+            SELECT r.id AS numero, r.status, r.pedido, r.mensagem, r.faltou, r.total, r.modelo, r.criada_em,
                    -- dinheiro como texto, igual ao POST: número em JSON perderia a precisão do NUMERIC
                    json_agg(json_build_object(
                        'produto_id', i.produto_id, 'titulo', i.titulo, 'quantidade', i.quantidade,

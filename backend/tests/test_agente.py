@@ -1,6 +1,8 @@
 """O laço do agente com um modelo roteirizado e um servidor MCP de mentira: sem chave e sem rede."""
 
+import itertools
 import json
+import time
 from typing import Any
 
 import anyio
@@ -21,7 +23,7 @@ CATALOGO = {
 }
 
 
-def catalogo_falso(fora_do_ar: bool = False) -> MCPServer:
+def catalogo_falso(fora_do_ar: bool = False, demora: float = 0) -> MCPServer:
     srv = MCPServer("catalogo-falso")
 
     @srv.tool(structured_output=True)
@@ -32,7 +34,8 @@ def catalogo_falso(fora_do_ar: bool = False) -> MCPServer:
         return {"termo": termo, "total": len(achados), "produtos": achados}
 
     @srv.tool(structured_output=True)
-    def detalhar_produto(id: int) -> dict[str, Any]:
+    async def detalhar_produto(id: int) -> dict[str, Any]:
+        await anyio.sleep(demora)
         if id not in CATALOGO:
             raise ToolError(f"PRODUTO_NAO_ENCONTRADO: não existe produto com id {id}")
         return CATALOGO[id]
@@ -40,17 +43,22 @@ def catalogo_falso(fora_do_ar: bool = False) -> MCPServer:
     return srv
 
 
+_ids = itertools.count()
+
+
 def chamada(nome: str, **args) -> dict:
-    return {"id": f"c-{nome}", "type": "function", "function": {"name": nome, "arguments": json.dumps(args)}}
+    return {"id": f"c{next(_ids)}", "type": "function", "function": {"name": nome, "arguments": json.dumps(args)}}
 
 
-def modelo_roteirizado(monkeypatch, passos: list[dict]) -> list[list[dict]]:
-    """Troca a OpenRouter por respostas fixas; devolve as conversas que o modelo recebeu."""
+def modelo_roteirizado(monkeypatch, passos: list) -> list[list[dict]]:
+    """Troca a OpenRouter por respostas fixas; devolve as conversas que o modelo recebeu.
+    Cada passo é uma chamada, ou uma lista de chamadas pedidas na mesma resposta."""
     recebidas = []
 
     async def completar(mensagens, ferramentas):
         recebidas.append(list(mensagens))
-        return {"role": "assistant", "content": "", "tool_calls": [passos.pop(0)]}
+        passo = passos.pop(0)
+        return {"role": "assistant", "content": "", "tool_calls": passo if isinstance(passo, list) else [passo]}
 
     monkeypatch.setattr(llm, "completar", completar)
     return recebidas
@@ -63,8 +71,8 @@ def anyio_backend():
 
 @pytest.fixture
 def catalogo(monkeypatch):
-    def usar(fora_do_ar: bool = False):
-        srv = catalogo_falso(fora_do_ar)
+    def usar(fora_do_ar: bool = False, demora: float = 0):
+        srv = catalogo_falso(fora_do_ar, demora)
         monkeypatch.setattr(agente, "Client", lambda url: Client(srv))
     usar()
     return usar
@@ -93,13 +101,13 @@ async def test_produto_inventado_volta_para_o_modelo_corrigir(monkeypatch, catal
     recebidas = modelo_roteirizado(monkeypatch, [
         chamada("responder", itens=[{"produto_id": 555, "quantidade": 3}], mensagem="ok"),
         chamada("buscar_produtos", termo="laptop"),
-        chamada("responder", itens=[{"produto_id": 78, "quantidade": 3}], mensagem="ok"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3}], mensagem="ok"),
     ])
 
     r = await agente.atender("3 laptops")
 
     assert "recusada pela conferência" in recebidas[1][-1]["content"]
-    assert [i.produto_id for i in r.itens] == [78]
+    assert [i.produto_id for i in r.itens] == [81]
     # a recusa fica registrada, para aparecer no chat
     assert r.ferramentas[0]["ferramenta"] == "responder" and r.ferramentas[0]["erro"]
     assert "555" in r.ferramentas[0]["detalhe"]
@@ -181,3 +189,67 @@ async def test_pedido_que_passa_do_prazo_sai_como_erro_claro(monkeypatch, catalo
 
     with pytest.raises(agente.AgenteDemorou):
         await agente.atender("3 laptops")
+
+
+async def test_consultas_pedidas_juntas_rodam_em_paralelo(monkeypatch, catalogo):
+    catalogo(demora=0.5)
+    modelo_roteirizado(monkeypatch, [
+        chamada("buscar_produtos", termo="laptop"),
+        [chamada("detalhar_produto", id=78), chamada("detalhar_produto", id=81)],  # na mesma resposta
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3}], mensagem="ok"),
+    ])
+
+    inicio = time.monotonic()
+    r = await agente.atender("3 laptops")
+    duracao = time.monotonic() - inicio
+
+    # Uma depois da outra levariam 1 s ou mais; juntas, perto de 0,5 s.
+    assert duracao < 0.9
+    # O registro mantém a ordem pedida, não a ordem em que as respostas chegaram.
+    assert [c["argumentos"] for c in r.ferramentas[1:3]] == [{"id": 78}, {"id": 81}]
+
+
+async def test_erro_numa_consulta_paralela_sai_como_erro_claro(monkeypatch, catalogo):
+    catalogo(fora_do_ar=True)
+    modelo_roteirizado(monkeypatch, [[chamada("buscar_produtos", termo="laptop"), chamada("detalhar_produto", id=81)]])
+
+    with pytest.raises(agente.CatalogoIndisponivel, match="não respondeu em 5s"):
+        await agente.atender("3 laptops")
+
+
+async def test_o_que_ficou_de_fora_vira_status_parcial(monkeypatch, catalogo):
+    modelo_roteirizado(monkeypatch, [
+        chamada("buscar_produtos", termo="laptop"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "teto_unitario": 2000}],
+                faltou=[{"descricao": "2 tratores", "motivo": "não existe no catálogo"}],
+                mensagem="Os laptops entraram; tratores não há no catálogo."),
+    ])
+
+    r = await agente.atender("3 laptops até US$ 2.000 cada e 2 tratores")
+
+    assert r.status == "parcial"
+    assert r.faltou == [{"descricao": "2 tratores", "motivo": "não existe no catálogo"}]
+    assert [i.produto_id for i in r.itens] == [81]
+
+
+async def test_status_sem_itens_e_nao_atendida_e_sem_falta_e_criada(monkeypatch, catalogo):
+    modelo_roteirizado(monkeypatch, [
+        chamada("buscar_produtos", termo="laptop"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3}], mensagem="ok"),
+    ])
+
+    assert (await agente.atender("3 laptops")).status == "criada"
+    assert agente.Resultado([], "nada", []).status == "nao_atendida"
+
+
+async def test_escolha_mais_cara_sem_motivo_volta_para_o_modelo(monkeypatch, catalogo):
+    recebidas = modelo_roteirizado(monkeypatch, [
+        chamada("buscar_produtos", termo="laptop"),
+        chamada("responder", itens=[{"produto_id": 78, "quantidade": 3}], mensagem="Escolhi o mais barato."),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3}], mensagem="Escolhi o mais barato."),
+    ])
+
+    r = await agente.atender("3 laptops")
+
+    assert "Lenovo Yoga 920" in recebidas[2][-1]["content"]
+    assert [i.produto_id for i in r.itens] == [81]

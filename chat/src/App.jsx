@@ -173,7 +173,7 @@ function Resposta({ erro, requisicao, hora }) {
     );
   }
 
-  const { numero, mensagem, itens, total, ferramentas } = requisicao;
+  const { numero, status, mensagem, itens, faltou = [], total, ferramentas } = requisicao;
   return (
     <div className="balao agente">
       <p className="texto">{mensagem}</p>
@@ -182,7 +182,7 @@ function Resposta({ erro, requisicao, hora }) {
         <div className="cartao">
           <div className="cartao-topo">
             <span>Requisição nº {numero}</span>
-            <span className="selo criada">criada</span>
+            <span className={`selo ${status}`}>{status === "parcial" ? "parcial" : "criada"}</span>
           </div>
           <ul className="itens">
             {itens.map((it) => (
@@ -203,7 +203,20 @@ function Resposta({ erro, requisicao, hora }) {
           </div>
         </div>
       ) : (
-        <div className="selo nao-atendida">nenhuma requisição criada</div>
+        <div className="selo nao_atendida">nenhuma requisição criada</div>
+      )}
+
+      {faltou.length > 0 && (
+        <div className="faltou">
+          <div className="faltou-titulo">Ficou de fora</div>
+          <ul>
+            {faltou.map((f, i) => (
+              <li key={i}>
+                <strong>{f.descricao}</strong>: {f.motivo}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {ferramentas.length > 0 && <Ferramentas lista={ferramentas} />}

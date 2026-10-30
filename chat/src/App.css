@@ -235,10 +235,35 @@ body {
   background: #e3f4e9;
 }
 
-.selo.nao-atendida {
+.selo.parcial {
+  color: var(--alerta);
+  background: #fdf0dc;
+}
+
+.selo.nao_atendida {
   display: inline-block;
   color: var(--alerta);
   background: #fdf0dc;
+}
+
+.faltou {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #fff8ec;
+  border: 1px solid #f3dfb8;
+  font-size: 0.9rem;
+}
+
+.faltou-titulo {
+  font-weight: 600;
+  color: var(--alerta);
+  margin-bottom: 2px;
+}
+
+.faltou ul {
+  margin: 0;
+  padding-left: 18px;
 }
 
 .itens {

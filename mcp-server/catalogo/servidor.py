@@ -65,7 +65,7 @@ def _resumo(p: dict) -> dict:
         "(trecho de texto, sem diferenciar maiúsculas) e o catálogo está em inglês: use um termo "
         'curto, em inglês e no singular — "laptop", não "laptops" nem "notebook". Se vier vazio, '
         "tente o singular ou um sinônimo antes de concluir que o catálogo não tem o produto. "
-        f"Devolve até {LIMITE_BUSCA} produtos e o total encontrado."
+        f"Devolve até {LIMITE_BUSCA} produtos, do mais barato para o mais caro, e o total encontrado."
     )
 )
 async def buscar_produtos(termo: Annotated[str, Field(description="Termo de busca, em inglês")]) -> ResultadoBusca:

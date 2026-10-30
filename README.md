@@ -60,16 +60,20 @@ backend confere a proposta e grava.
 
 - **O modelo propõe, o código confere** (`conferir_itens`, em `backend/app/agente.py`). O código garante
   que só entra produto devolvido por uma ferramenta naquela conversa, que preço e título vêm do catálogo,
-  que estoque, quantidade mínima e o teto de cada item batem, e calcula o total. Entender o pedido (o quê,
-  quantos, qual teto) e escolher entre os candidatos é do modelo. Proposta recusada volta para ele
-  corrigir, e a recusa aparece no chat.
+  que estoque, quantidade mínima e o teto de cada item batem, que não havia opção mais barata da mesma
+  categoria que atendesse, e calcula o total. Entender o pedido (o quê, quantos, qual teto) é do modelo.
+  Proposta recusada volta para ele corrigir, e a recusa aparece no chat.
 - **A busca da DummyJSON é literal:** "laptops" devolve 0 produtos e "laptop" devolve 5. A descrição de
   `buscar_produtos` e o prompt pedem termo curto, em inglês e no singular, e sinônimos antes de desistir.
-- **Escolha:** entre os produtos que atendem, o de menor preço, o mesmo para todas as unidades. Vale o
-  preço de lista; o desconto que a DummyJSON informa não é aplicado.
-- **Atendimento parcial:** item que não existe fica de fora e o resto é gravado; quantidade sem estoque
-  não é reduzida. Sem nenhum item, nada é gravado (HTTP 200, `status: nao_atendida`); com item, HTTP 201
-  e o número da requisição.
+- **Escolha:** entre os produtos que atendem, o de menor preço, o mesmo para todas as unidades. A busca
+  já vem do mais barato para o mais caro, e o código confere a regra. Se o pedido exige um produto mais
+  caro (marca, modelo), o modelo diz o porquê em `motivo_escolha`. Vale o preço de lista; o desconto que
+  a DummyJSON informa não é aplicado.
+- **Menos idas e vindas:** a busca já traz preço, estoque e quantidade mínima, então o agente só detalha
+  o que vai propor. Consultas pedidas na mesma resposta rodam em paralelo.
+- **Atendimento parcial:** item que não existe fica de fora e o resto é gravado, com `status: parcial` e
+  a lista `faltou` (o que ficou de fora e o motivo); quantidade sem estoque não é reduzida. Sem nenhum
+  item, nada é gravado (HTTP 200, `status: nao_atendida`); com item, HTTP 201 e o número da requisição.
 - **Erros com mensagem clara no chat:** DummyJSON fora do ar ou lenta (5 s) → 503; OpenRouter → 502 com
   o motivo dela (chave, crédito, modelo); pedido que passa de 120 s → 504. Argumento malformado do
   modelo não vira erro: volta para ele corrigir.

@@ -23,12 +23,13 @@ def ids_da_categoria(categoria: str) -> set[int]:
     return {p["id"] for p in r.json()["products"]}
 
 
-def criada(categoria: str, quantidade: int, preco_max: int, menciona: str | None = None):
+def criada(categoria: str, quantidade: int, preco_max: int, faltou: str | None = None):
     ids = ids_da_categoria(categoria)
 
     def checar(resp: dict) -> str | None:
-        if resp["status"] != "criada":
-            return f"esperava requisição criada, veio {resp['status']}"
+        esperado = "parcial" if faltou else "criada"
+        if resp["status"] != esperado:
+            return f"esperava requisição {esperado}, veio {resp['status']}"
         fora = [i["titulo"] for i in resp["itens"] if i["produto_id"] not in ids]
         if fora:
             return f"itens fora da categoria {categoria}: {fora}"
@@ -38,8 +39,9 @@ def criada(categoria: str, quantidade: int, preco_max: int, menciona: str | None
         caros = [i["titulo"] for i in resp["itens"] if Decimal(i["preco_unitario"]) > preco_max]
         if caros:
             return f"acima de US$ {preco_max}: {caros}"
-        if menciona and menciona not in resp["mensagem"].lower():
-            return f"a mensagem não diz o que faltou ({menciona!r})"
+        ficou_de_fora = " ".join(f"{f['descricao']} {f['motivo']}" for f in resp["faltou"]).lower()
+        if faltou and faltou not in ficou_de_fora:
+            return f"o que faltou não cita {faltou!r}: {resp['faltou']}"
         return None
 
     return checar
@@ -58,7 +60,7 @@ CASOS = [
     ("Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada.", criada("laptops", 3, 2000)),
     ("Preciso de 4 smartphones até US$ 300 cada.", criada("smartphones", 4, 300)),
     ("Preciso de 2 tratores para a fazenda.", nao_atendida()),
-    ("Preciso de 3 laptops até US$ 2.000 cada e 2 tratores.", criada("laptops", 3, 2000, menciona="trator")),
+    ("Preciso de 3 laptops até US$ 2.000 cada e 2 tratores.", criada("laptops", 3, 2000, faltou="trator")),
     ("Preciso de 30 MacBook Pro para a equipe.", nao_atendida()),  # estoque: 24
 ]
 

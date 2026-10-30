@@ -87,6 +87,7 @@ async def test_buscar_produtos_devolve_os_produtos_resumidos():
     params = rota.calls.last.request.url.params
     assert params["q"] == "laptop"
     assert params["limit"] == "20"
+    assert (params["sortBy"], params["order"]) == ("price", "asc")
 
 
 @respx.mock

@@ -49,7 +49,7 @@ async def criar_requisicao(entrada: Pedido, response: Response) -> dict:
 
     corpo = {
         "numero": None,
-        "status": "nao_atendida",
+        "status": resultado.status,  # criada, parcial ou nao_atendida
         "mensagem": resultado.mensagem,
         "itens": [
             {
@@ -61,12 +61,12 @@ async def criar_requisicao(entrada: Pedido, response: Response) -> dict:
             }
             for i in resultado.itens
         ],
+        "faltou": resultado.faltou,
         "total": resultado.total,
         "ferramentas": resultado.ferramentas,
     }
     if resultado.itens:
         corpo["numero"] = await db.salvar(pedido, resultado, llm.MODELO)
-        corpo["status"] = "criada"
         response.status_code = 201
     return corpo
 

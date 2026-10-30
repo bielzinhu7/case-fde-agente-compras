@@ -39,7 +39,9 @@ async def _get(caminho: str, params: dict | None = None) -> dict:
 
 
 async def buscar(termo: str, limite: int) -> dict:
-    return await _get("/products/search", {"q": termo, "limit": limite, "select": CAMPOS_BUSCA})
+    # Do mais barato para o mais caro: o primeiro que atende ao pedido é a escolha certa.
+    params = {"q": termo, "limit": limite, "select": CAMPOS_BUSCA, "sortBy": "price", "order": "asc"}
+    return await _get("/products/search", params)
 
 
 async def detalhar(produto_id: int) -> dict:
