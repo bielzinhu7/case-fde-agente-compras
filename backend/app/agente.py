@@ -55,7 +55,9 @@ RESPONDER = {
     "type": "function",
     "function": {
         "name": "responder",
-        "description": "Encerra o atendimento com os itens escolhidos (vazio se nada atende) e a mensagem para a pessoa.",
+        "description": (
+            "Encerra o atendimento com os itens escolhidos (vazio se nada atende) e a mensagem para a pessoa."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -255,7 +257,9 @@ async def _chamar_mcp(mcp: Client, nome: str, args: dict, vistos: dict[int, dict
         raise CatalogoIndisponivel("o servidor MCP do catálogo parou de responder") from e
 
     texto = " ".join(getattr(c, "text", "") for c in r.content)
-    chamadas_log.append({"ferramenta": nome, "argumentos": args, "erro": r.is_error, "detalhe": texto if r.is_error else None})
+    chamadas_log.append(
+        {"ferramenta": nome, "argumentos": args, "erro": r.is_error, "detalhe": texto if r.is_error else None}
+    )
     if r.is_error:
         if "CATALOGO_INDISPONIVEL" in texto:
             # Sem catálogo não há o que o modelo possa fazer; para aqui com mensagem clara.

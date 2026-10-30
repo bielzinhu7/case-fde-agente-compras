@@ -22,7 +22,9 @@ app = FastAPI(title="Agente de compras", lifespan=lifespan)
 
 
 class Pedido(BaseModel):
-    pedido: str = Field(min_length=3, max_length=2000, examples=["Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada."])
+    pedido: str = Field(
+        min_length=3, max_length=2000, examples=["Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada."]
+    )
 
 
 @app.post("/requisicoes")

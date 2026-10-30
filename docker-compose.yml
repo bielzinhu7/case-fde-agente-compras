@@ -5,6 +5,9 @@ services:
       DUMMYJSON_URL: ${DUMMYJSON_URL:-https://dummyjson.com}
       DUMMYJSON_TIMEOUT: ${DUMMYJSON_TIMEOUT:-5}
       MCP_ALLOWED_HOSTS: localhost:*,127.0.0.1:*,mcp:*
+    # Só para chamar as ferramentas direto do host (ex.: MCP Inspector); o backend usa a rede interna.
+    ports:
+      - "127.0.0.1:${MCP_PUBLIC_PORT:-8001}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 5s
@@ -32,8 +35,9 @@ services:
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-haiku-5.5}
       MCP_URL: http://mcp:8000/mcp
       DATABASE_URL: postgresql://compras:compras@postgres:5432/compras
+    # Só em 127.0.0.1: a API gasta a chave da OpenRouter e não tem autenticação.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
       mcp:
         condition: service_healthy
@@ -48,7 +52,7 @@ services:
   chat:
     build: ./chat
     ports:
-      - "3000:80"
+      - "127.0.0.1:${CHAT_PORT:-3000}:80"
     depends_on:
       backend:
         condition: service_healthy

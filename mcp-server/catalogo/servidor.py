@@ -17,7 +17,7 @@ LIMITE_BUSCA = int(os.getenv("LIMITE_BUSCA", "20"))
 
 mcp = MCPServer(
     name="catalogo",
-    instructions="Catálogo de produtos da DummyJSON. Preços em dólares (US$), sem impostos.",
+    instructions="Catálogo de produtos da DummyJSON. Preços em dólares (US$).",
 )
 
 

@@ -3,7 +3,7 @@ target-version = "py313"
 extend-exclude = [".venv"]
 
 [lint]
-extend-select = ["B"]
+extend-select = ["B", "E501"]
 
 [lint.isort]
 known-first-party = ["app", "catalogo"]
