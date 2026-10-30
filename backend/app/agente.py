@@ -8,9 +8,10 @@ teto do item volta para o modelo corrigir.
 import json
 import logging
 import os
+import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import anyio
 from mcp import Client
@@ -43,19 +44,21 @@ sistema confere: se houver opção mais barata da mesma categoria que atenda, a 
 exige aquele produto (marca, modelo ou característica citada), diga isso em motivo_escolha.
 - Nunca invente produto, preço ou estoque: use só o que as ferramentas devolveram.
 - Se o pedido citar um produto ou uma marca específica, não troque por outro.
+- Nunca mude a quantidade pedida: nem reduza por falta de estoque nem aumente por causa da quantidade \
+mínima do produto. Se um produto não serve para aquela quantidade, escolha outro que sirva ou deixe o item \
+de fora.
 - Se um dos itens pedidos não existir no catálogo ou não couber no orçamento, proponha os outros e diga o \
-que ficou de fora. Se nenhum produto adequado tiver estoque para a quantidade pedida, não reduza a \
-quantidade: deixe esse item de fora e explique. Se nada atender, não proponha itens e diga com clareza o que \
-faltou.
+que ficou de fora. Se nada atender, não proponha itens e diga com clareza o que faltou.
 
 Para terminar, chame responder com os itens escolhidos (lista vazia se nada atende). Em cada item, ponha em \
-teto_unitario o teto por unidade que o pedido deu para aquele item; omita se o pedido não deu teto. Em \
-faltou, liste cada coisa pedida que ficou de fora e o motivo (não existe no catálogo, passa do teto, falta \
-estoque); deixe vazio se nada faltou. A \
-mensagem é em português, de no máximo duas frases: o que foi escolhido e por quê, ou o que faltou. Na \
-mensagem, afirme só o que as ferramentas devolveram e não compare com produtos que você não detalhou. Não \
+quantidade_pedida a quantidade que a pessoa pediu, e em teto_unitario o teto por unidade que o pedido deu \
+para aquele item (omita se não deu). Em faltou, liste cada coisa pedida que ficou de fora e o motivo (não \
+existe no catálogo, passa do teto, falta estoque, quantidade mínima maior que a pedida); deixe vazio se nada \
+faltou. A mensagem é em português, de no máximo duas frases: o que foi escolhido e por quê, ou o que faltou. \
+Na mensagem, afirme só o que as ferramentas devolveram e não compare com produtos que você não detalhou. Não \
 ofereça o que você não pode fazer: cada pedido é atendido de uma vez, sem continuação, e você não fala com \
-fornecedores. Não escreva preços nem total: o sistema mostra a tabela com os valores conferidos."""
+fornecedores. Evite repetir preços e total, que a tabela já mostra; se citar um valor, ele tem que ser \
+exatamente um preço do catálogo ou um valor do pedido: o sistema confere."""
 
 RESPONDER = {
     "type": "function",
@@ -74,6 +77,11 @@ RESPONDER = {
                         "properties": {
                             "produto_id": {"type": "integer"},
                             "quantidade": {"type": "integer", "minimum": 1},
+                            "quantidade_pedida": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": "A quantidade que a pessoa pediu deste item",
+                            },
                             "teto_unitario": {
                                 "type": "number",
                                 "description": "Teto por unidade que o pedido deu para este item, em US$",
@@ -84,7 +92,7 @@ RESPONDER = {
                                 "pedido pediu (marca, modelo, característica)",
                             },
                         },
-                        "required": ["produto_id", "quantidade"],
+                        "required": ["produto_id", "quantidade", "quantidade_pedida"],
                     },
                 },
                 "faltou": {
@@ -110,6 +118,7 @@ RESPONDER = {
 class ItemProposto(BaseModel):
     produto_id: int
     quantidade: int = Field(ge=1)
+    quantidade_pedida: int = Field(ge=1)
     teto_unitario: Decimal | None = Field(default=None, gt=0)
     motivo_escolha: str | None = None
 
@@ -182,28 +191,40 @@ def conferir_itens(propostos: list[ItemProposto], vistos: dict[int, dict]) -> tu
     quantidades: dict[int, int] = {}
     tetos: dict[int, Decimal] = {}
     motivos: dict[int, str] = {}
+    problemas = []
     for p in propostos:
+        if p.quantidade != p.quantidade_pedida:
+            visto = vistos.get(p.produto_id)
+            saida = _sugestao(visto, p.quantidade_pedida, p.teto_unitario, vistos) if visto else ""
+            problemas.append(
+                f"produto {p.produto_id}: a pessoa pediu {p.quantidade_pedida} e a proposta tem {p.quantidade}; não "
+                f"mude a quantidade pedida (escolha outro produto ou deixe o item em faltou){saida}"
+            )
         quantidades[p.produto_id] = quantidades.get(p.produto_id, 0) + p.quantidade
         if p.teto_unitario is not None:
             tetos[p.produto_id] = min(p.teto_unitario, tetos.get(p.produto_id, p.teto_unitario))
         if p.motivo_escolha:
             motivos[p.produto_id] = p.motivo_escolha
 
-    itens, problemas = [], []
+    itens = []
     for produto_id, qtd in quantidades.items():
         p = vistos.get(produto_id)
         if p is None:
             problemas.append(f"o produto {produto_id} não foi devolvido por nenhuma ferramenta nesta conversa")
             continue
         preco = Decimal(str(p["preco"]))
-        if qtd > p["estoque"]:
-            problemas.append(f"{p['titulo']}: {qtd} unidades pedidas, {p['estoque']} em estoque")
-        if qtd < p["quantidade_minima"]:
-            problemas.append(f"{p['titulo']}: o mínimo por pedido é {p['quantidade_minima']} unidades")
         teto = tetos.get(produto_id)
+        falhas = []
+        if qtd > p["estoque"]:
+            falhas.append(f"{qtd} unidades pedidas, {p['estoque']} em estoque")
+        if qtd < p["quantidade_minima"]:
+            falhas.append(f"o mínimo por pedido é {p['quantidade_minima']} unidades")
         if teto is not None and preco > teto:
-            problemas.append(f"{p['titulo']}: US$ {preco} passa do teto de US$ {teto} por unidade")
-        if produto_id not in motivos:
+            falhas.append(f"US$ {preco} passa do teto de US$ {teto} por unidade")
+        if falhas:
+            # A recusa já aponta a saída: sem ela, o modelo chegou a desistir dizendo que nada atendia.
+            problemas.append(f"{p['titulo']}: {'; '.join(falhas)}{_sugestao(p, qtd, teto, vistos)}")
+        elif produto_id not in motivos:
             barato = _mais_barato_que_atende(p, qtd, teto, vistos)
             if barato:
                 problemas.append(
@@ -214,18 +235,75 @@ def conferir_itens(propostos: list[ItemProposto], vistos: dict[int, dict]) -> tu
     return ([] if problemas else itens), problemas
 
 
-def _mais_barato_que_atende(escolhido: dict, qtd: int, teto: Decimal | None, vistos: dict[int, dict]) -> dict | None:
-    """O produto mais barato, entre os vistos na conversa, da mesma categoria e que atende ao item."""
-    preco = Decimal(str(escolhido["preco"]))
-    candidatos = [
+# Valor em dinheiro citado no texto: "US$ 1.099,99", "US$ 2.000", "$1,099.99".
+_DINHEIRO = re.compile(r"(?:US\$|R\$|\$)\s*(\d[\d.,]*\d|\d)")
+
+
+def _ler_valor(numero: str) -> Decimal | None:
+    """Lê o número nos formatos brasileiro e americano: "1.099,99", "1,099.99", "2.000", "1099.99"."""
+    if "," in numero and "." in numero:
+        decimal_sep = "," if numero.rfind(",") > numero.rfind(".") else "."
+        numero = numero.replace("." if decimal_sep == "," else ",", "").replace(decimal_sep, ".")
+    elif "," in numero or "." in numero:
+        sep = "," if "," in numero else "."
+        casas = len(numero.rsplit(sep, 1)[1])
+        numero = numero.replace(sep, ".") if casas == 2 and numero.count(sep) == 1 else numero.replace(sep, "")
+    try:
+        return Decimal(numero)
+    except InvalidOperation:
+        return None
+
+
+def conferir_valores_citados(textos: list[str], conhecidos: set[Decimal]) -> list[str]:
+    """Todo valor em dinheiro do texto tem que ser um preço do catálogo, um valor do pedido ou o total calculado."""
+    problemas = []
+    for texto in textos:
+        for numero in _DINHEIRO.findall(texto):
+            valor = _ler_valor(numero)
+            if valor is not None and not any(abs(valor - c) <= Decimal("0.01") for c in conhecidos):
+                problemas.append(
+                    f"o texto cita US$ {numero}, que não é preço do catálogo, valor do pedido nem total calculado; "
+                    "tire o valor ou use o exato"
+                )
+    return problemas
+
+
+def _valores_conhecidos(pedido: str, proposta: "Proposta", itens: list[Item], vistos: dict[int, dict]) -> set[Decimal]:
+    conhecidos = {Decimal(str(v["preco"])) for v in vistos.values()}
+    conhecidos |= {i.subtotal for i in itens} | {sum((i.subtotal for i in itens), Decimal(0))}
+    conhecidos |= {p.teto_unitario for p in proposta.itens if p.teto_unitario is not None}
+    conhecidos |= {v for n in _DINHEIRO.findall(pedido) if (v := _ler_valor(n)) is not None}
+    return conhecidos
+
+
+def _que_atendem(categoria: str, qtd: int, teto: Decimal | None, vistos: dict[int, dict]) -> list[dict]:
+    """Produtos vistos na conversa, da categoria, que atendem à quantidade e ao teto; do mais barato ao mais caro."""
+    opcoes = [
         v for v in vistos.values()
-        if v["categoria"] == escolhido["categoria"]
-        and Decimal(str(v["preco"])) < preco
+        if v["categoria"] == categoria
         and v["estoque"] >= qtd
         and v["quantidade_minima"] <= qtd
         and (teto is None or Decimal(str(v["preco"])) <= teto)
     ]
-    return min(candidatos, key=lambda v: Decimal(str(v["preco"])), default=None)
+    return sorted(opcoes, key=lambda v: Decimal(str(v["preco"])))
+
+
+def _mais_barato_que_atende(escolhido: dict, qtd: int, teto: Decimal | None, vistos: dict[int, dict]) -> dict | None:
+    preco = Decimal(str(escolhido["preco"]))
+    opcoes = _que_atendem(escolhido["categoria"], qtd, teto, vistos)
+    mais_baratos = [v for v in opcoes if Decimal(str(v["preco"])) < preco]
+    return mais_baratos[0] if mais_baratos else None
+
+
+def _sugestao(produto: dict, qtd: int, teto: Decimal | None, vistos: dict[int, dict]) -> str:
+    opcoes = [v for v in _que_atendem(produto["categoria"], qtd, teto, vistos) if v["id"] != produto["id"]]
+    if not opcoes:
+        return ". Nenhum outro produto desta categoria visto até agora atende"
+    v = opcoes[0]
+    return (
+        f". Opção que atende: {v['titulo']} (id {v['id']}, US$ {v['preco']}, mínimo {v['quantidade_minima']}, "
+        f"estoque {v['estoque']})"
+    )
 
 
 def _para_openai(ferramenta) -> dict:
@@ -286,7 +364,7 @@ async def _conversar(mcp: Client, ferramentas: list[dict], pedido: str) -> Resul
             if args is None:
                 conteudo = "Argumentos inválidos: envie um JSON."
             elif nome == "responder":
-                resultado, conteudo = _responder(args, vistos, chamadas_log)
+                resultado, conteudo = _responder(args, pedido, vistos, chamadas_log)
                 if resultado:
                     return resultado
             else:
@@ -303,11 +381,16 @@ def _argumentos(chamada: dict) -> dict | None:
         return None
 
 
-def _responder(args: dict, vistos: dict[int, dict], chamadas_log: list[dict]) -> tuple[Resultado | None, str]:
+def _responder(
+    args: dict, pedido: str, vistos: dict[int, dict], chamadas_log: list[dict]
+) -> tuple[Resultado | None, str]:
     """Confere a proposta final. Devolve (resultado, "") se ela passa, ou (None, motivo) para o modelo corrigir."""
     try:
         proposta = Proposta.model_validate(args)
         itens, problemas = conferir_itens(proposta.itens, vistos)
+        if not problemas:
+            textos = [proposta.mensagem] + [f.motivo for f in proposta.faltou]
+            problemas = conferir_valores_citados(textos, _valores_conhecidos(pedido, proposta, itens, vistos))
     except ValidationError as e:
         problemas = [f"argumentos inválidos: {erro['loc']} {erro['msg']}" for erro in e.errors()]
 

@@ -59,7 +59,8 @@ def nao_atendida():
 CASOS = [
     ("Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada.", criada("laptops", 3, 2000)),
     ("Preciso de 4 smartphones até US$ 300 cada.", criada("smartphones", 4, 300)),
-    ("Preciso de 2 tratores para a fazenda.", nao_atendida()),
+    # o mais barato (Realme C35) exige no mínimo 3: tem que escolher outro, não comprar 3
+    ("Preciso de 2 smartphones até US$ 300 cada.", criada("smartphones", 2, 300)),
     ("Preciso de 3 laptops até US$ 2.000 cada e 2 tratores.", criada("laptops", 3, 2000, faltou="trator")),
     ("Preciso de 30 MacBook Pro para a equipe.", nao_atendida()),  # estoque: 24
 ]

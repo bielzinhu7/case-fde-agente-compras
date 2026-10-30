@@ -83,9 +83,8 @@ async def test_pedido_de_exemplo_vira_requisicao_com_precos_do_catalogo(monkeypa
         chamada("buscar_produtos", termo="laptops"),
         chamada("buscar_produtos", termo="laptop"),
         chamada("detalhar_produto", id=81),
-        # o modelo erra o preço no texto; não importa: o valor vem do catálogo
-        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "teto_unitario": 2000}],
-                mensagem="Escolhi o Lenovo Yoga 920, que custa US$ 999."),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3, "teto_unitario": 2000}],
+                mensagem="Escolhi o Lenovo Yoga 920, o mais barato dentro do teto de US$ 2.000."),
     ])
 
     r = await agente.atender("Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada.")
@@ -99,9 +98,9 @@ async def test_pedido_de_exemplo_vira_requisicao_com_precos_do_catalogo(monkeypa
 
 async def test_produto_inventado_volta_para_o_modelo_corrigir(monkeypatch, catalogo):
     recebidas = modelo_roteirizado(monkeypatch, [
-        chamada("responder", itens=[{"produto_id": 555, "quantidade": 3}], mensagem="ok"),
+        chamada("responder", itens=[{"produto_id": 555, "quantidade": 3, "quantidade_pedida": 3}], mensagem="ok"),
         chamada("buscar_produtos", termo="laptop"),
-        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3}], mensagem="ok"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3}], mensagem="ok"),
     ])
 
     r = await agente.atender("3 laptops")
@@ -118,7 +117,8 @@ async def test_argumento_malformado_volta_para_o_modelo_em_vez_de_virar_erro_500
         chamada("buscar_produtos", termo="laptop"),
         chamada("responder", itens=[{"produto_id": 81, "quantidade": "três", "teto_unitario": "US$ 2.000"}],
                 mensagem="ok"),
-        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "teto_unitario": 2000}], mensagem="ok"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3, "teto_unitario": 2000}],
+                mensagem="ok"),
     ])
 
     r = await agente.atender("3 laptops até US$ 2.000 cada")
@@ -196,7 +196,7 @@ async def test_consultas_pedidas_juntas_rodam_em_paralelo(monkeypatch, catalogo)
     modelo_roteirizado(monkeypatch, [
         chamada("buscar_produtos", termo="laptop"),
         [chamada("detalhar_produto", id=78), chamada("detalhar_produto", id=81)],  # na mesma resposta
-        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3}], mensagem="ok"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3}], mensagem="ok"),
     ])
 
     inicio = time.monotonic()
@@ -220,7 +220,7 @@ async def test_erro_numa_consulta_paralela_sai_como_erro_claro(monkeypatch, cata
 async def test_o_que_ficou_de_fora_vira_status_parcial(monkeypatch, catalogo):
     modelo_roteirizado(monkeypatch, [
         chamada("buscar_produtos", termo="laptop"),
-        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "teto_unitario": 2000}],
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3, "teto_unitario": 2000}],
                 faltou=[{"descricao": "2 tratores", "motivo": "não existe no catálogo"}],
                 mensagem="Os laptops entraram; tratores não há no catálogo."),
     ])
@@ -235,7 +235,7 @@ async def test_o_que_ficou_de_fora_vira_status_parcial(monkeypatch, catalogo):
 async def test_status_sem_itens_e_nao_atendida_e_sem_falta_e_criada(monkeypatch, catalogo):
     modelo_roteirizado(monkeypatch, [
         chamada("buscar_produtos", termo="laptop"),
-        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3}], mensagem="ok"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3}], mensagem="ok"),
     ])
 
     assert (await agente.atender("3 laptops")).status == "criada"
@@ -245,11 +245,42 @@ async def test_status_sem_itens_e_nao_atendida_e_sem_falta_e_criada(monkeypatch,
 async def test_escolha_mais_cara_sem_motivo_volta_para_o_modelo(monkeypatch, catalogo):
     recebidas = modelo_roteirizado(monkeypatch, [
         chamada("buscar_produtos", termo="laptop"),
-        chamada("responder", itens=[{"produto_id": 78, "quantidade": 3}], mensagem="Escolhi o mais barato."),
-        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3}], mensagem="Escolhi o mais barato."),
+        chamada("responder", itens=[{"produto_id": 78, "quantidade": 3, "quantidade_pedida": 3}],
+                mensagem="Escolhi o mais barato."),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3}],
+                mensagem="Escolhi o mais barato."),
     ])
 
     r = await agente.atender("3 laptops")
 
     assert "Lenovo Yoga 920" in recebidas[2][-1]["content"]
     assert [i.produto_id for i in r.itens] == [81]
+
+
+async def test_preco_inventado_na_mensagem_volta_para_o_modelo(monkeypatch, catalogo):
+    """A tabela vem do catálogo, mas o texto também vai para a tela: um preço inventado nele é recusado."""
+    recebidas = modelo_roteirizado(monkeypatch, [
+        chamada("buscar_produtos", termo="laptop"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3}],
+                mensagem="Escolhi o Lenovo Yoga 920, que custa US$ 999."),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3}],
+                mensagem="Escolhi o Lenovo Yoga 920, que custa US$ 1.099,99."),
+    ])
+
+    r = await agente.atender("3 laptops")
+
+    assert "999" in recebidas[2][-1]["content"]
+    assert r.mensagem.endswith("US$ 1.099,99.")
+
+
+async def test_quantidade_mudada_por_causa_do_minimo_volta_para_o_modelo(monkeypatch, catalogo):
+    recebidas = modelo_roteirizado(monkeypatch, [
+        chamada("buscar_produtos", termo="laptop"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 5, "quantidade_pedida": 3}], mensagem="ok"),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3}], mensagem="ok"),
+    ])
+
+    r = await agente.atender("3 laptops")
+
+    assert "pediu 3" in recebidas[2][-1]["content"]
+    assert [i.quantidade for i in r.itens] == [3]
