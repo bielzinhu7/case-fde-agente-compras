@@ -10,3 +10,40 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: compras
+      POSTGRES_PASSWORD: compras
+      POSTGRES_DB: compras
+    volumes:
+      - dados:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "compras", "-d", "compras"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-haiku-5.5}
+      MCP_URL: http://mcp:8000/mcp
+      DATABASE_URL: postgresql://compras:compras@postgres:5432/compras
+    ports:
+      - "8000:8000"
+    depends_on:
+      mcp:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  dados:
