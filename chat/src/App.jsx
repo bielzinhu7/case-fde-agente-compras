@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const SUGESTOES = [
   "Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada.",
@@ -36,6 +36,39 @@ const ERRO_SEM_DETALHE = {
   504: "O pedido demorou demais e foi interrompido. Tente de novo.",
 };
 
+// Nome de cada parte do /saude, para dizer no topo o que caiu.
+const PARTES = { banco: "banco de dados", catalogo: "catálogo (DummyJSON)", modelo: "chave da OpenRouter" };
+
+// Consulta /saude ao abrir, a cada 30 s e quando um pedido dá erro.
+function useSaude() {
+  const [saude, setSaude] = useState({ estado: "verificando" });
+  const checar = useCallback(async () => {
+    try {
+      const resp = await fetch("/api/saude");
+      const corpo = await resp.json().catch(() => null);
+      if (resp.ok) return setSaude({ estado: "online" });
+      if (!corpo) return setSaude({ estado: "fora", detalhe: "o backend não respondeu" });
+      const caidas = Object.entries(PARTES).filter(([chave]) => corpo[chave] && !corpo[chave].ok);
+      setSaude({ estado: "instavel", detalhe: caidas.map(([, nome]) => nome).join(", ") });
+    } catch {
+      setSaude({ estado: "fora", detalhe: "sem conexão com o servidor" });
+    }
+  }, []);
+  useEffect(() => {
+    checar();
+    const intervalo = setInterval(checar, 30000);
+    return () => clearInterval(intervalo);
+  }, [checar]);
+  return [saude, checar];
+}
+
+const TEXTO_SAUDE = {
+  verificando: () => "verificando…",
+  online: () => "online · consulta o catálogo e monta a requisição",
+  instavel: (d) => `instável · fora do ar: ${d}`,
+  fora: (d) => `fora do ar · ${d}`,
+};
+
 async function enviarPedido(pedido) {
   let resp;
   try {
@@ -61,6 +94,7 @@ export default function App() {
   const [enviando, setEnviando] = useState(false);
   const [painelAberto, setPainelAberto] = useState(false);
   const [versaoRequisicoes, setVersaoRequisicoes] = useState(0); // muda a cada requisição criada
+  const [saude, checarSaude] = useSaude();
   const fim = useRef(null);
   const campo = useRef(null);
 
@@ -93,6 +127,7 @@ export default function App() {
     const resposta = await enviarPedido(pedido);
     setMensagens((m) => [...m, { autor: "agente", hora: hora(), pedido, ...resposta }]);
     if (resposta.requisicao?.numero) setVersaoRequisicoes((v) => v + 1);
+    if (resposta.erro) checarSaude();
     setEnviando(false);
     campo.current?.focus();
   }
@@ -103,8 +138,9 @@ export default function App() {
         <Avatar />
         <div>
           <h1>Agente de compras</h1>
-          <p className="status">
-            <span className="ponto" /> online · consulta o catálogo e monta a requisição
+          <p className={`status ${saude.estado}`} title="Saúde do backend, do catálogo e do banco (GET /saude)">
+            <span className={`ponto ${saude.estado}`} />{" "}
+            <span className="status-texto">{TEXTO_SAUDE[saude.estado](saude.detalhe)}</span>
           </p>
         </div>
         <div className="acoes">

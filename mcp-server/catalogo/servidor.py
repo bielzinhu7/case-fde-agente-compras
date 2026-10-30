@@ -1,6 +1,7 @@
 """Servidor MCP do catálogo: expõe buscar_produtos e detalhar_produto sobre a DummyJSON."""
 
 import os
+import time
 from typing import Annotated
 
 from mcp.server import MCPServer
@@ -106,7 +107,22 @@ async def detalhar_produto(id: Annotated[int, Field(gt=0, description="id do pro
 
 @mcp.custom_route("/health", methods=["GET"])
 async def health(request: Request) -> JSONResponse:
+    """Só diz que o processo está de pé; é o healthcheck do compose."""
     return JSONResponse({"status": "ok"})
+
+
+@mcp.custom_route("/saude", methods=["GET"])
+async def saude(request: Request) -> JSONResponse:
+    """Confere a dependência de verdade: a DummyJSON responde?"""
+    inicio = time.monotonic()
+    try:
+        await dummyjson.verificar()
+        dummy = {"ok": True}
+    except (CatalogoIndisponivel, ProdutoNaoEncontrado) as e:
+        dummy = {"ok": False, "erro": str(e)}
+    dummy["ms"] = round((time.monotonic() - inicio) * 1000)
+    return JSONResponse({"status": "ok" if dummy["ok"] else "falha", "dummyjson": dummy},
+                        status_code=200 if dummy["ok"] else 503)
 
 
 def main() -> None:

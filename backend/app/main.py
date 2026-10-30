@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import agente, db, llm, registro
+from app import agente, db, llm, registro, saude
 
 registro.configurar()
 log = logging.getLogger(__name__)
@@ -46,7 +46,8 @@ async def id_do_pedido(request: Request, call_next):
     try:
         resposta = await call_next(request)
         resposta.headers["X-Pedido-Id"] = registro.pedido_id.get()
-        if request.url.path != "/health":  # o healthcheck do compose roda a cada 5 s
+        # As checagens de saúde rodam a cada poucos segundos: só vão para o log quando falham.
+        if request.url.path not in ("/health", "/saude") or resposta.status_code >= 400:
             log.info("http", extra={"metodo": request.method, "caminho": request.url.path,
                                     "status_http": resposta.status_code, "duracao_ms": _ms(inicio)})
         return resposta
@@ -119,7 +120,16 @@ async def listar_atendimentos() -> list[dict]:
 
 @app.get("/health")
 async def health() -> dict:
+    """O processo está de pé (healthcheck do compose)."""
     return {"status": "ok"}
+
+
+@app.get("/saude")
+async def saude_completa(response: Response) -> dict:
+    """Um pedido conseguiria ser atendido agora? 200 se sim; 503 com o detalhe de cada parte se não."""
+    ok, partes = await saude.verificar()
+    response.status_code = 200 if ok else 503
+    return {"status": "ok" if ok else "degradado", **partes}
 
 
 def _traduzir(erro: Exception) -> tuple[int, str, str]:

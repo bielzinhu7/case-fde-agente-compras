@@ -653,7 +653,7 @@ body {
     padding: 6px 10px;
   }
 
-  .status {
+  .status-texto {
     display: none;
   }
 }
@@ -663,4 +663,26 @@ body {
   font-size: 0.8rem;
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   opacity: 0.8;
+}
+
+/* saúde no topo */
+
+.ponto.verificando {
+  background: #b7bccb;
+}
+
+.ponto.instavel {
+  background: #e3a008;
+}
+
+.ponto.fora {
+  background: var(--erro);
+}
+
+.status.instavel {
+  color: var(--alerta);
+}
+
+.status.fora {
+  color: var(--erro);
 }

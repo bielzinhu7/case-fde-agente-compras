@@ -63,6 +63,12 @@ async def _conectar() -> psycopg.AsyncConnection:
     return await psycopg.AsyncConnection.connect(DATABASE_URL, row_factory=dict_row)
 
 
+async def ping() -> None:
+    """Para a checagem de saúde: conecta e roda um SELECT 1, sem esperar mais de 3 s."""
+    async with await psycopg.AsyncConnection.connect(DATABASE_URL, connect_timeout=3) as con:
+        await con.execute("SELECT 1")
+
+
 async def criar_tabelas(tentativas: int = 15) -> None:
     """Roda na subida do backend; espera o Postgres aceitar conexão."""
     for n in range(1, tentativas + 1):

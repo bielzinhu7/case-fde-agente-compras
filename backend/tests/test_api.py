@@ -10,7 +10,7 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 
-from app import agente, db, main, registro
+from app import agente, db, main, registro, saude
 
 PEDIDO = {"pedido": "Preciso de 3 laptops até US$ 2.000 cada"}
 
@@ -133,3 +133,35 @@ def test_atendimentos_lista_o_rastro(monkeypatch, cliente):
     monkeypatch.setattr(db, "listar_atendimentos", listar_atendimentos)
 
     assert cliente.get("/atendimentos").json()[0]["pedido_id"] == "a1b2c3d4"
+
+
+def test_saude_503_diz_qual_parte_falhou(monkeypatch, cliente):
+    async def banco_ok():
+        pass
+
+    async def catalogo_fora():
+        raise RuntimeError("a DummyJSON não respondeu: timeout")
+
+    monkeypatch.setattr(saude, "_banco", banco_ok)
+    monkeypatch.setattr(saude, "_catalogo", catalogo_fora)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "chave-de-teste")
+
+    r = cliente.get("/saude")
+
+    assert r.status_code == 503
+    corpo = r.json()
+    assert corpo["status"] == "degradado"
+    assert corpo["banco"]["ok"] is True and corpo["modelo"]["ok"] is True
+    assert corpo["catalogo"]["ok"] is False
+    assert corpo["catalogo"]["erro"] == "a DummyJSON não respondeu: timeout"
+
+
+def test_saude_200_com_tudo_de_pe(monkeypatch, cliente):
+    async def ok():
+        pass
+
+    monkeypatch.setattr(saude, "_banco", ok)
+    monkeypatch.setattr(saude, "_catalogo", ok)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "chave-de-teste")
+
+    assert cliente.get("/saude").status_code == 200

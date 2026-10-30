@@ -165,3 +165,29 @@ async def test_detalhar_produto_com_catalogo_fora_do_ar(falha):
 
     assert r.is_error
     assert "CATALOGO_INDISPONIVEL" in texto(r)
+
+
+
+# --- saúde (rota HTTP, não é ferramenta) -------------------------------------------------------
+
+
+def test_saude_ok_quando_a_dummyjson_responde():
+    from starlette.testclient import TestClient
+
+    with respx.mock:
+        respx.get(f"{BASE_URL}/products/1").mock(return_value=httpx.Response(200, json={"id": 1}))
+        r = TestClient(mcp.streamable_http_app()).get("/saude")
+
+    assert r.status_code == 200
+    assert r.json()["dummyjson"]["ok"] is True
+
+
+def test_saude_503_quando_a_dummyjson_falha():
+    from starlette.testclient import TestClient
+
+    with respx.mock:
+        respx.get(f"{BASE_URL}/products/1").mock(side_effect=httpx.ConnectError("recusada"))
+        r = TestClient(mcp.streamable_http_app()).get("/saude")
+
+    assert r.status_code == 503
+    assert "conectar" in r.json()["dummyjson"]["erro"]

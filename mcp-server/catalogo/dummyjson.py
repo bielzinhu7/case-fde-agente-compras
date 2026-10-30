@@ -46,3 +46,8 @@ async def buscar(termo: str, limite: int) -> dict:
 
 async def detalhar(produto_id: int) -> dict:
     return await _get(f"/products/{produto_id}")
+
+
+async def verificar() -> None:
+    """Pedido mínimo à DummyJSON, para a checagem de saúde."""
+    await _get("/products/1", {"select": "id"})
