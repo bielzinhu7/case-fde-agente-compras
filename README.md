@@ -13,7 +13,8 @@ cp .env.example .env        # coloque a chave da OpenRouter em OPENROUTER_API_KE
 docker compose up --build
 ```
 
-Abra <http://localhost:3000> e escolha uma das sugestões ou escreva um pedido. A API também responde direto:
+Abra <http://localhost:3000> e escolha uma das sugestões ou escreva um pedido. O botão "Requisições" lista
+as salvas, e a conversa continua lá se a página for recarregada. A API também responde direto:
 
 ```bash
 curl -X POST localhost:8000/requisicoes -H "Content-Type: application/json" \
