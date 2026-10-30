@@ -286,6 +286,53 @@ def conferir_valores_citados(textos: list[str], conhecidos: set[Decimal]) -> lis
     return problemas
 
 
+# Valores e quantidades que a pessoa escreveu no pedido: é contra eles que o teto e a quantidade declarados pelo
+# modelo são conferidos, para a conferência não confiar no que o próprio modelo extraiu.
+_MIL = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:mil|k)\b", re.IGNORECASE)
+_DOLARES = re.compile(r"(\d[\d.,]*)\s*(?:d[oó]lares|usd)\b", re.IGNORECASE)
+_INTEIRO = re.compile(r"\b\d+\b")
+_POR_EXTENSO = {"um": 1, "uma": 1, "dois": 2, "duas": 2, "três": 3, "tres": 3, "quatro": 4, "cinco": 5,
+                "seis": 6, "sete": 7, "oito": 8, "nove": 9, "dez": 10}
+
+
+def valores_do_pedido(pedido: str) -> set[Decimal]:
+    """Dinheiro escrito no pedido: "US$ 2.000", "$2000", "2 mil", "2k", "2000 dólares"."""
+    valores = {v for n in _DINHEIRO.findall(pedido) + _DOLARES.findall(pedido) if (v := _ler_valor(n)) is not None}
+    valores |= {v * 1000 for n in _MIL.findall(pedido) if (v := _ler_valor(n)) is not None}
+    return valores
+
+
+def quantidades_do_pedido(pedido: str) -> set[int]:
+    """Quantidades escritas no pedido, em número ou por extenso; sem nenhuma, vale 1 ("um laptop")."""
+    sem_dinheiro = pedido
+    for padrao in (_DINHEIRO, _DOLARES, _MIL):  # "US$ 2.000", "2000 dólares" e "2 mil" não são quantidade
+        sem_dinheiro = padrao.sub(" ", sem_dinheiro)
+    numeros = {int(n) for n in _INTEIRO.findall(sem_dinheiro)}
+    palavras = {_POR_EXTENSO[p] for p in re.findall(r"[a-zà-ú]+", pedido.lower()) if p in _POR_EXTENSO}
+    return (numeros | palavras) or {1}
+
+
+def conferir_contra_o_pedido(proposta: "Proposta", pedido: str) -> list[str]:
+    valores = valores_do_pedido(pedido)
+    quantidades = quantidades_do_pedido(pedido)
+    tetos = [i.teto_unitario for i in proposta.itens if i.teto_unitario is not None]
+    if proposta.teto_total is not None:
+        tetos.append(proposta.teto_total)
+
+    problemas = [
+        f"o teto US$ {t} não aparece no pedido; use o valor que a pessoa escreveu"
+        for t in tetos if not any(abs(t - v) <= Decimal("0.01") for v in valores)
+    ]
+    if valores and proposta.itens and not tetos:
+        problemas.append("o pedido cita um valor em dinheiro: informe-o em teto_unitario (por unidade) ou em "
+                         "teto_total (pedido inteiro)")
+    problemas += [
+        f"produto {i.produto_id}: a quantidade_pedida {i.quantidade_pedida} não aparece no pedido"
+        for i in proposta.itens if i.quantidade_pedida not in quantidades
+    ]
+    return problemas
+
+
 def _valores_conhecidos(pedido: str, proposta: "Proposta", itens: list[Item], vistos: dict[int, dict]) -> set[Decimal]:
     conhecidos = {Decimal(str(v["preco"])) for v in vistos.values()}
     conhecidos |= {i.subtotal for i in itens} | {sum((i.subtotal for i in itens), Decimal(0))}
@@ -408,6 +455,7 @@ def _responder(
     try:
         proposta = Proposta.model_validate(args)
         itens, problemas = conferir_itens(proposta.itens, vistos, proposta.teto_total)
+        problemas = conferir_contra_o_pedido(proposta, pedido) + problemas
         if not problemas:
             textos = [proposta.mensagem] + [f.motivo for f in proposta.faltou]
             problemas = conferir_valores_citados(textos, _valores_conhecidos(pedido, proposta, itens, vistos))

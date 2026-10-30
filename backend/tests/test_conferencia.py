@@ -193,3 +193,44 @@ def test_valor_com_uma_casa_decimal_e_lido_como_decimal():
     """ "US$ 1.5" era lido como 15 e gerava uma recusa à toa."""
     assert conferir_valores_citados(["custa US$ 1.5 e US$ 2,5"], {Decimal("1.5"), Decimal("2.5")}) == []
     assert conferir_valores_citados(["custa US$ 2.000"], {Decimal(2000)}) == []
+
+
+# --- conferência contra o texto do pedido -------------------------------------------------------
+
+
+def proposta(itens, teto_total=None):
+    from app.agente import Proposta
+
+    return Proposta(itens=itens, teto_total=teto_total, mensagem="ok")
+
+
+def test_teto_declarado_tem_que_estar_no_pedido():
+    from app.agente import conferir_contra_o_pedido
+
+    pedido = "Preciso de 3 laptops até US$ 2.000 cada"
+    assert conferir_contra_o_pedido(proposta([item(81, 3, teto=2000)]), pedido) == []
+    # o modelo "relaxou" o teto para US$ 5.000: a conferência não pode aceitar
+    assert "US$ 5000 não aparece no pedido" in conferir_contra_o_pedido(proposta([item(81, 3, teto=5000)]), pedido)[0]
+
+
+def test_pedido_com_valor_exige_teto_declarado():
+    from app.agente import conferir_contra_o_pedido
+
+    problemas = conferir_contra_o_pedido(proposta([item(81, 3)]), "Preciso de 3 laptops até US$ 2.000 cada")
+
+    assert "informe-o em teto_unitario" in problemas[0]
+
+
+def test_valores_escritos_de_outros_jeitos_valem():
+    from app.agente import conferir_contra_o_pedido
+
+    assert conferir_contra_o_pedido(proposta([item(81, 1, teto=2000)]), "um notebook até 2 mil dólares") == []
+    assert conferir_contra_o_pedido(proposta([item(134, 2)], teto_total=600), "2 celulares, total de 600 USD") == []
+
+
+def test_quantidade_declarada_tem_que_estar_no_pedido():
+    from app.agente import conferir_contra_o_pedido
+
+    assert conferir_contra_o_pedido(proposta([item(81, 3)]), "Preciso de três laptops") == []
+    assert conferir_contra_o_pedido(proposta([item(81, 1)]), "Preciso de laptop") == []
+    assert "quantidade_pedida 5" in conferir_contra_o_pedido(proposta([item(81, 5)]), "Preciso de 3 laptops")[0]
