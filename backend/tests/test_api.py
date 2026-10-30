@@ -20,6 +20,18 @@ def cliente():
     return TestClient(main.app)  # sem "with": não roda o lifespan, então não precisa do Postgres
 
 
+@pytest.fixture(autouse=True)
+def rastros(monkeypatch):
+    """O rastro vai para uma lista em vez do banco."""
+    gravados = []
+
+    async def registrar_atendimento(rastro):
+        gravados.append(rastro)
+
+    monkeypatch.setattr(db, "registrar_atendimento", registrar_atendimento)
+    return gravados
+
+
 def atender_com(monkeypatch, resultado=None, erro=None):
     async def atender(pedido):
         if erro:
@@ -29,7 +41,7 @@ def atender_com(monkeypatch, resultado=None, erro=None):
     monkeypatch.setattr(agente, "atender", atender)
 
 
-def test_requisicao_criada_devolve_201_numero_e_id(monkeypatch, cliente):
+def test_requisicao_criada_devolve_201_numero_e_id(monkeypatch, cliente, rastros):
     item = agente.Item(81, "Lenovo Yoga 920", 3, Decimal("1099.99"))
     atender_com(monkeypatch, agente.Resultado([item], "ok", []))
 
@@ -44,9 +56,12 @@ def test_requisicao_criada_devolve_201_numero_e_id(monkeypatch, cliente):
     assert r.json()["numero"] == 7 and r.json()["status"] == "criada"
     assert r.json()["total"] == "3299.97"
     assert len(r.headers["X-Pedido-Id"]) == 8
+    assert [(x["status"], x["status_http"], x["requisicao_id"], x["pedido_id"]) for x in rastros] == [
+        ("criada", 201, 7, r.headers["X-Pedido-Id"])
+    ]
 
 
-def test_nada_atende_devolve_200_sem_gravar(monkeypatch, cliente):
+def test_nada_atende_devolve_200_sem_gravar_requisicao_mas_com_rastro(monkeypatch, cliente, rastros):
     atender_com(monkeypatch, agente.Resultado([], "Não há tratores no catálogo.", []))
 
     async def salvar(*_):
@@ -58,6 +73,7 @@ def test_nada_atende_devolve_200_sem_gravar(monkeypatch, cliente):
 
     assert r.status_code == 200
     assert r.json()["numero"] is None and r.json()["status"] == "nao_atendida"
+    assert [(x["status"], x["requisicao_id"]) for x in rastros] == [("nao_atendida", None)]
 
 
 @pytest.mark.parametrize(
@@ -69,7 +85,7 @@ def test_nada_atende_devolve_200_sem_gravar(monkeypatch, cliente):
         (RuntimeError("bug"), 500),
     ],
 )
-def test_erro_vira_mensagem_clara_com_o_codigo_do_pedido(monkeypatch, cliente, erro, status_http):
+def test_erro_vira_mensagem_clara_com_o_codigo_do_pedido(monkeypatch, cliente, rastros, erro, status_http):
     atender_com(monkeypatch, erro=erro)
 
     r = cliente.post("/requisicoes", json=PEDIDO)
@@ -78,6 +94,9 @@ def test_erro_vira_mensagem_clara_com_o_codigo_do_pedido(monkeypatch, cliente, e
     assert r.json()["detail"]
     assert "bug" not in r.json()["detail"]  # detalhe interno não vaza para o chat
     assert r.json()["codigo"] == r.headers["X-Pedido-Id"]
+    assert [(x["status"], x["status_http"], x["pedido_id"]) for x in rastros] == [
+        ("erro", status_http, r.json()["codigo"])
+    ]
 
 
 def test_linha_de_log_e_json_com_o_id_do_pedido():
@@ -94,3 +113,23 @@ def test_linha_de_log_e_json_com_o_id_do_pedido():
     assert linha["pedido_id"] == "a1b2c3d4"
     assert linha["evento"] == "ferramenta"
     assert linha["ferramenta"] == "buscar_produtos" and linha["duracao_ms"] == 12
+
+
+def test_falha_ao_gravar_o_rastro_nao_derruba_a_resposta(monkeypatch, cliente):
+    atender_com(monkeypatch, agente.Resultado([], "nada", []))
+
+    async def banco_fora(rastro):
+        raise OSError("banco fora do ar")
+
+    monkeypatch.setattr(db, "registrar_atendimento", banco_fora)
+
+    assert cliente.post("/requisicoes", json=PEDIDO).status_code == 200
+
+
+def test_atendimentos_lista_o_rastro(monkeypatch, cliente):
+    async def listar_atendimentos():
+        return [{"pedido_id": "a1b2c3d4", "status": "erro", "status_http": 503}]
+
+    monkeypatch.setattr(db, "listar_atendimentos", listar_atendimentos)
+
+    assert cliente.get("/atendimentos").json()[0]["pedido_id"] == "a1b2c3d4"

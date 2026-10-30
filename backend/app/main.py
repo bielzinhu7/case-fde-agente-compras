@@ -1,8 +1,13 @@
-"""API do agente de compras: POST /requisicoes atende um pedido; GET /requisicoes lista as gravadas."""
+"""API do agente de compras.
+
+POST /requisicoes atende um pedido; GET /requisicoes lista as requisições gravadas; GET /atendimentos lista o
+rastro de cada pedido feito ao agente, inclusive os não atendidos e os que deram erro.
+"""
 
 import logging
 import time
 from contextlib import asynccontextmanager
+from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -13,6 +18,15 @@ from app import agente, db, llm, registro
 
 registro.configurar()
 log = logging.getLogger(__name__)
+
+# Erro conhecido -> (status HTTP, evento no log, mensagem para o chat).
+ERROS = [
+    (agente.CatalogoIndisponivel, 503, "catalogo_indisponivel",
+     "Não consegui consultar o catálogo de produtos agora ({}). Tente de novo em alguns instantes."),
+    (llm.ModeloIndisponivel, 502, "modelo_indisponivel", "O modelo de linguagem não respondeu ({})."),
+    (agente.AgenteSemResposta, 502, "agente_sem_resposta", "Não consegui montar a requisição ({}). Tente reformular."),
+    (agente.AgenteDemorou, 504, "agente_demorou", "O pedido demorou demais e foi interrompido ({}). Tente de novo."),
+]
 
 
 @asynccontextmanager
@@ -42,7 +56,7 @@ async def id_do_pedido(request: Request, call_next):
 
 @app.exception_handler(StarletteHTTPException)
 async def erro_com_codigo(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-    # O código aparece no chat; com ele se acha o pedido no log.
+    # O código aparece no chat; com ele se acha o pedido no log e em GET /atendimentos.
     return JSONResponse({"detail": exc.detail, "codigo": registro.pedido_id.get()}, status_code=exc.status_code)
 
 
@@ -57,29 +71,24 @@ async def criar_requisicao(entrada: Pedido, response: Response) -> dict:
     pedido = entrada.pedido.strip()
     log.info("pedido_recebido", extra={"pedido": pedido[:300]})
     inicio = time.monotonic()
+    uso = llm.medir_uso()
     try:
         resultado = await agente.atender(pedido)
-    except agente.CatalogoIndisponivel as e:
-        log.error("catalogo_indisponivel", extra={"motivo": str(e)})
-        raise HTTPException(
-            503, f"Não consegui consultar o catálogo de produtos agora ({e}). Tente de novo em alguns instantes."
-        ) from e
-    except llm.ModeloIndisponivel as e:
-        log.error("modelo_indisponivel", extra={"motivo": str(e)})
-        raise HTTPException(502, f"O modelo de linguagem não respondeu ({e}).") from e
-    except agente.AgenteSemResposta as e:
-        log.error("agente_sem_resposta", extra={"motivo": str(e)})
-        raise HTTPException(502, f"Não consegui montar a requisição ({e}). Tente reformular o pedido.") from e
-    except agente.AgenteDemorou as e:
-        log.error("agente_demorou", extra={"motivo": str(e)})
-        raise HTTPException(504, f"O pedido demorou demais e foi interrompido ({e}). Tente de novo.") from e
     except Exception as e:
-        # Bug ou falha não prevista: o log guarda o rastro e o chat recebe uma frase, não "Internal Server Error".
-        log.exception("erro_inesperado")
-        raise HTTPException(500, "Erro inesperado ao montar a requisição. O detalhe está no log do backend.") from e
+        status_http, _evento, mensagem = _traduzir(e)
+        await _gravar_rastro(pedido, "erro", status_http, mensagem, None, [], uso, inicio)
+        raise HTTPException(status_http, mensagem) from e
 
-    corpo = {
-        "numero": None,
+    numero = await db.salvar(pedido, resultado, llm.MODELO) if resultado.itens else None
+    status_http = 201 if numero else 200
+    response.status_code = status_http
+    await _gravar_rastro(pedido, resultado.status, status_http, resultado.mensagem, numero, resultado.ferramentas,
+                         uso, inicio)
+    log.info("pedido_concluido", extra={"status": resultado.status, "numero": numero, "total": str(resultado.total),
+                                        "itens": len(resultado.itens), "ferramentas": len(resultado.ferramentas),
+                                        "custo_usd": round(uso["custo_usd"], 6), "duracao_ms": _ms(inicio)})
+    return {
+        "numero": numero,
         "status": resultado.status,  # criada, parcial ou nao_atendida
         "mensagem": resultado.mensagem,
         "itens": [
@@ -96,13 +105,6 @@ async def criar_requisicao(entrada: Pedido, response: Response) -> dict:
         "total": resultado.total,
         "ferramentas": resultado.ferramentas,
     }
-    if resultado.itens:
-        corpo["numero"] = await db.salvar(pedido, resultado, llm.MODELO)
-        response.status_code = 201
-    log.info("pedido_concluido", extra={"status": resultado.status, "numero": corpo["numero"],
-                                        "total": str(resultado.total), "itens": len(resultado.itens),
-                                        "ferramentas": len(resultado.ferramentas), "duracao_ms": _ms(inicio)})
-    return corpo
 
 
 @app.get("/requisicoes")
@@ -110,9 +112,38 @@ async def listar_requisicoes() -> list[dict]:
     return await db.listar()
 
 
+@app.get("/atendimentos")
+async def listar_atendimentos() -> list[dict]:
+    return await db.listar_atendimentos()
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+def _traduzir(erro: Exception) -> tuple[int, str, str]:
+    for tipo, status_http, evento, mensagem in ERROS:
+        if isinstance(erro, tipo):
+            log.error(evento, extra={"motivo": str(erro)})
+            return status_http, evento, mensagem.format(erro)
+    # Bug ou falha não prevista: o log guarda o rastro e o chat recebe uma frase, não "Internal Server Error".
+    log.exception("erro_inesperado")
+    return 500, "erro_inesperado", "Erro inesperado ao montar a requisição. O detalhe está no log do backend."
+
+
+async def _gravar_rastro(pedido: str, status: str, status_http: int, mensagem: str, numero: int | None,
+                         ferramentas: list[dict], uso: dict, inicio: float) -> None:
+    """Grava o atendimento no banco. Se falhar, o pedido segue: o rastro não pode derrubar a resposta."""
+    try:
+        await db.registrar_atendimento({
+            "pedido_id": registro.pedido_id.get(), "pedido": pedido, "status": status, "status_http": status_http,
+            "mensagem": mensagem, "requisicao_id": numero, "ferramentas": ferramentas,
+            "tokens_entrada": uso["tokens_entrada"], "tokens_saida": uso["tokens_saida"],
+            "custo_usd": Decimal(str(round(uso["custo_usd"], 6))), "duracao_ms": _ms(inicio), "modelo": llm.MODELO,
+        })
+    except Exception:
+        log.exception("rastro_nao_gravado")
 
 
 def _ms(inicio: float) -> int:

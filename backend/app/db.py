@@ -1,4 +1,4 @@
-"""Postgres: cria as tabelas na subida e grava/lista as requisições."""
+"""Postgres: cria as tabelas na subida, grava as requisições e o rastro de cada atendimento."""
 
 import asyncio
 import logging
@@ -19,7 +19,9 @@ ESQUEMA = """
 CREATE TABLE IF NOT EXISTS requisicoes (
     id         SERIAL PRIMARY KEY,
     pedido     TEXT           NOT NULL,
+    status     TEXT           NOT NULL CHECK (status IN ('criada', 'parcial')),
     mensagem   TEXT           NOT NULL,
+    faltou     JSONB          NOT NULL DEFAULT '[]',
     total      NUMERIC(12, 2) NOT NULL,
     modelo     TEXT           NOT NULL,
     criada_em  TIMESTAMPTZ    NOT NULL DEFAULT now()
@@ -33,9 +35,25 @@ CREATE TABLE IF NOT EXISTS itens_requisicao (
     preco_unitario  NUMERIC(12, 2) NOT NULL,
     subtotal        NUMERIC(12, 2) NOT NULL
 );
--- Colunas que chegaram depois: ALTER também atualiza um volume criado por uma versão anterior.
-ALTER TABLE requisicoes ADD COLUMN IF NOT EXISTS status TEXT  NOT NULL DEFAULT 'criada';
-ALTER TABLE requisicoes ADD COLUMN IF NOT EXISTS faltou JSONB NOT NULL DEFAULT '[]';
+-- Um registro por pedido feito ao agente, inclusive os não atendidos e os que deram erro.
+-- pedido_id é o mesmo id dos logs e do código de erro mostrado no chat.
+CREATE TABLE IF NOT EXISTS atendimentos (
+    id              SERIAL PRIMARY KEY,
+    pedido_id       TEXT           NOT NULL,
+    pedido          TEXT           NOT NULL,
+    status          TEXT           NOT NULL CHECK (status IN ('criada', 'parcial', 'nao_atendida', 'erro')),
+    status_http     INTEGER        NOT NULL,
+    mensagem        TEXT           NOT NULL,
+    requisicao_id   INTEGER        REFERENCES requisicoes (id),
+    ferramentas     JSONB          NOT NULL DEFAULT '[]',
+    tokens_entrada  INTEGER        NOT NULL DEFAULT 0,
+    tokens_saida    INTEGER        NOT NULL DEFAULT 0,
+    custo_usd       NUMERIC(12, 6) NOT NULL DEFAULT 0,
+    duracao_ms      INTEGER        NOT NULL,
+    modelo          TEXT           NOT NULL,
+    criado_em       TIMESTAMPTZ    NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS atendimentos_pedido_id ON atendimentos (pedido_id);
 """
 
 CENTAVO = Decimal("0.01")
@@ -55,17 +73,17 @@ async def criar_tabelas(tentativas: int = 15) -> None:
         except psycopg.OperationalError:
             if n == tentativas:
                 raise
-            log.warning("Postgres ainda não aceita conexão (tentativa %d/%d)", n, tentativas)
+            log.warning("postgres_aguardando", extra={"tentativa": n, "de": tentativas})
             await asyncio.sleep(2)
 
 
 async def salvar(pedido: str, resultado: Resultado, modelo: str) -> int:
     async with await _conectar() as con, con.transaction():
         cur = await con.execute(
-            "INSERT INTO requisicoes (pedido, mensagem, total, modelo, status, faltou)"
+            "INSERT INTO requisicoes (pedido, status, mensagem, faltou, total, modelo)"
             " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-            (pedido, resultado.mensagem, resultado.total.quantize(CENTAVO), modelo, resultado.status,
-             Jsonb(resultado.faltou)),
+            (pedido, resultado.status, resultado.mensagem, Jsonb(resultado.faltou),
+             resultado.total.quantize(CENTAVO), modelo),
         )
         numero = (await cur.fetchone())["id"]
         async with con.cursor() as c:
@@ -94,6 +112,34 @@ async def listar(limite: int = 100) -> list[dict]:
             JOIN itens_requisicao i ON i.requisicao_id = r.id
             GROUP BY r.id
             ORDER BY r.id DESC
+            LIMIT %s
+            """,
+            (limite,),
+        )
+        return await cur.fetchall()
+
+
+async def registrar_atendimento(rastro: dict) -> None:
+    async with await _conectar() as con:
+        await con.execute(
+            """
+            INSERT INTO atendimentos (pedido_id, pedido, status, status_http, mensagem, requisicao_id, ferramentas,
+                                      tokens_entrada, tokens_saida, custo_usd, duracao_ms, modelo)
+            VALUES (%(pedido_id)s, %(pedido)s, %(status)s, %(status_http)s, %(mensagem)s, %(requisicao_id)s,
+                    %(ferramentas)s, %(tokens_entrada)s, %(tokens_saida)s, %(custo_usd)s, %(duracao_ms)s, %(modelo)s)
+            """,
+            {**rastro, "ferramentas": Jsonb(rastro["ferramentas"])},
+        )
+
+
+async def listar_atendimentos(limite: int = 100) -> list[dict]:
+    async with await _conectar() as con:
+        cur = await con.execute(
+            """
+            SELECT pedido_id, criado_em, pedido, status, status_http, mensagem, requisicao_id AS numero,
+                   ferramentas, tokens_entrada, tokens_saida, custo_usd::text AS custo_usd, duracao_ms, modelo
+            FROM atendimentos
+            ORDER BY id DESC
             LIMIT %s
             """,
             (limite,),

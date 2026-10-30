@@ -1,5 +1,6 @@
 """Chamada à OpenRouter, que fala o formato de chat da OpenAI. Sem SDK: um POST e o tratamento de erro."""
 
+import contextvars
 import logging
 import os
 import time
@@ -13,6 +14,17 @@ URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELO = os.getenv("OPENROUTER_MODEL", "anthropic/claude-haiku-5.5")
 TIMEOUT = float(os.getenv("OPENROUTER_TIMEOUT", "30"))
 TENTATIVAS = 3  # para erro temporário: limite de taxa (429) e falha do provedor (5xx)
+
+
+# Soma de tokens e custo das chamadas ao modelo do pedido atual (para o rastro no banco).
+_uso: contextvars.ContextVar[dict | None] = contextvars.ContextVar("uso_do_pedido", default=None)
+
+
+def medir_uso() -> dict:
+    """Começa a somar tokens e custo das chamadas ao modelo deste pedido; devolve o acumulador."""
+    acumulado = {"tokens_entrada": 0, "tokens_saida": 0, "custo_usd": 0.0}
+    _uso.set(acumulado)
+    return acumulado
 
 
 class ModeloIndisponivel(Exception):
@@ -79,6 +91,11 @@ async def completar(mensagens: list[dict], ferramentas: list[dict]) -> dict:
         raise ModeloIndisponivel(f"a OpenRouter devolveu erro: {_motivo(resp)}")
     msg = dados["choices"][0]["message"]
     uso = dados.get("usage") or {}
+    acumulado = _uso.get()
+    if acumulado is not None:
+        acumulado["tokens_entrada"] += uso.get("prompt_tokens") or 0
+        acumulado["tokens_saida"] += uso.get("completion_tokens") or 0
+        acumulado["custo_usd"] += uso.get("cost") or 0
     log.info("modelo", extra={
         "modelo": MODELO,
         "duracao_ms": round((time.monotonic() - inicio) * 1000),

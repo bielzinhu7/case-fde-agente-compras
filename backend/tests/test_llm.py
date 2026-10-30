@@ -62,3 +62,16 @@ async def test_sem_chave_diz_onde_configurar(monkeypatch):
 
     with pytest.raises(llm.ModeloIndisponivel, match=r"\.env"):
         await llm.completar([], [])
+
+
+@respx.mock
+async def test_soma_tokens_e_custo_das_chamadas_do_pedido():
+    resposta = {**RESPOSTA_OK, "usage": {"prompt_tokens": 100, "completion_tokens": 20, "cost": 0.0003}}
+    respx.post(llm.URL).mock(return_value=httpx.Response(200, json=resposta))
+
+    acumulado = llm.medir_uso()
+    await llm.completar([], [])
+    await llm.completar([], [])
+
+    assert acumulado["tokens_entrada"] == 200 and acumulado["tokens_saida"] == 40
+    assert round(acumulado["custo_usd"], 6) == 0.0006
