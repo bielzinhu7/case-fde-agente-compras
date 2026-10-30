@@ -26,6 +26,10 @@ MCP_URL = os.getenv("MCP_URL", "http://mcp:8000/mcp")
 MAX_PASSOS = int(os.getenv("AGENTE_MAX_PASSOS", "12"))
 # Abaixo dos 180 s do nginx: o pedido termina com mensagem clara em vez de ser cortado no meio.
 PRAZO = float(os.getenv("AGENTE_PRAZO", "120"))
+CONSULTA_REPETIDA = (
+    "Você já fez esta consulta nesta conversa, e o resultado está acima. Não repita: com o que já tem, chame "
+    "responder (ou deixe o item em faltou); faça outra consulta só se faltar informação."
+)
 
 PROMPT = """Você é um agente de compras corporativas. A pessoa descreve o que precisa e você monta uma \
 requisição de compra com produtos do catálogo.
@@ -470,10 +474,14 @@ async def _conversar(mcp: Client, ferramentas: list[dict], pedido: str) -> Resul
     chamadas_log: list[dict] = []
     vistos: dict[int, dict] = {}
     questionadas: set[int] = set()
+    feitas: set[str] = set()
     mensagens = [{"role": "system", "content": PROMPT}, {"role": "user", "content": pedido}]
 
-    for _ in range(MAX_PASSOS):
-        msg = await llm.completar(mensagens, ferramentas)
+    for passo in range(MAX_PASSOS):
+        # No último passo só resta encerrar: a proposta sai com o que o modelo já tem e passa pela conferência,
+        # em vez de o pedido acabar em erro por falta de passos.
+        ultimo = passo == MAX_PASSOS - 1
+        msg = await llm.completar(mensagens, ferramentas, obrigatoria="responder" if ultimo else None)
         mensagens.append(msg)
         if not msg["tool_calls"]:
             # Com tool_choice=required não deveria acontecer; sem proposta, nada é gravado.
@@ -483,8 +491,19 @@ async def _conversar(mcp: Client, ferramentas: list[dict], pedido: str) -> Resul
         # As consultas ao catálogo pedidas de uma vez rodam juntas; a proposta final é conferida depois,
         # já com tudo o que elas devolveram.
         consultas = [(c, nome, args) for c, nome, args in chamadas if nome != "responder" and args is not None]
-        retornos = await _consultar_em_paralelo(mcp, consultas)
-        conteudos = {c["id"]: _registrar(nome, args, r, vistos, chamadas_log) for (c, nome, args), r in retornos}
+        # Consulta idêntica a uma já feita não volta ao catálogo: o modelo chegou a pedir o mesmo
+        # detalhar_produto dez vezes, até acabarem os passos. No lugar do resultado, ele recebe o aviso.
+        novas, conteudos = [], {}
+        for c, nome, args in consultas:
+            chave = f"{nome} {json.dumps(args, sort_keys=True)}"
+            if chave in feitas:
+                log.info("consulta_repetida", extra={"ferramenta": nome, "argumentos": args})
+                conteudos[c["id"]] = CONSULTA_REPETIDA
+            else:
+                feitas.add(chave)
+                novas.append((c, nome, args))
+        retornos = await _consultar_em_paralelo(mcp, novas)
+        conteudos |= {c["id"]: _registrar(nome, args, r, vistos, chamadas_log) for (c, nome, args), r in retornos}
 
         for chamada, nome, args in chamadas:
             if args is None:

@@ -42,8 +42,9 @@ def _motivo(resp: httpx.Response) -> str:
     return str(erro or "sem detalhe")[:200]
 
 
-async def completar(mensagens: list[dict], ferramentas: list[dict]) -> dict:
-    """Devolve a mensagem do assistente. `tool_choice=required`: o modelo sempre chama uma ferramenta."""
+async def completar(mensagens: list[dict], ferramentas: list[dict], obrigatoria: str | None = None) -> dict:
+    """Devolve a mensagem do assistente. `tool_choice=required`: o modelo sempre chama uma ferramenta; com
+    `obrigatoria`, só pode chamar aquela."""
     chave = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not chave:
         raise ModeloIndisponivel("a OPENROUTER_API_KEY não está configurada no .env")
@@ -52,7 +53,7 @@ async def completar(mensagens: list[dict], ferramentas: list[dict]) -> dict:
         "model": MODELO,
         "messages": mensagens,
         "tools": ferramentas,
-        "tool_choice": "required",
+        "tool_choice": {"type": "function", "function": {"name": obrigatoria}} if obrigatoria else "required",
         "temperature": 0,
         "usage": {"include": True},  # a OpenRouter devolve tokens e custo da chamada
     }

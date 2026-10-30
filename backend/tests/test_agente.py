@@ -55,7 +55,7 @@ def modelo_roteirizado(monkeypatch, passos: list) -> list[list[dict]]:
     Cada passo é uma chamada, ou uma lista de chamadas pedidas na mesma resposta."""
     recebidas = []
 
-    async def completar(mensagens, ferramentas):
+    async def completar(mensagens, ferramentas, obrigatoria=None):
         recebidas.append(list(mensagens))
         passo = passos.pop(0)
         return {"role": "assistant", "content": "", "tool_calls": passo if isinstance(passo, list) else [passo]}
@@ -148,7 +148,7 @@ async def test_catalogo_fora_do_ar_sai_como_erro_claro_e_nao_como_exception_grou
 
 
 async def test_falha_do_modelo_sai_como_erro_claro_e_nao_como_exception_group(monkeypatch, catalogo):
-    async def completar(mensagens, ferramentas):
+    async def completar(mensagens, ferramentas, obrigatoria=None):
         raise llm.ModeloIndisponivel("a OPENROUTER_API_KEY não está configurada no .env")
 
     monkeypatch.setattr(llm, "completar", completar)
@@ -181,7 +181,7 @@ async def test_mcp_que_cai_depois_de_conectar_sai_como_erro_claro(monkeypatch):
 
 
 async def test_pedido_que_passa_do_prazo_sai_como_erro_claro(monkeypatch, catalogo):
-    async def completar(mensagens, ferramentas):
+    async def completar(mensagens, ferramentas, obrigatoria=None):
         await anyio.sleep(5)
 
     monkeypatch.setattr(llm, "completar", completar)
@@ -316,3 +316,39 @@ async def test_pedido_em_reais_nao_e_convertido_para_dolar(monkeypatch, catalogo
 
     assert "em reais" in recebidas[2][-1]["content"]
     assert r.status == "nao_atendida"
+
+
+async def test_consulta_repetida_nao_volta_ao_catalogo(monkeypatch, catalogo):
+    """O modelo chegou a pedir o mesmo detalhar_produto dez vezes, até acabarem os passos (502)."""
+    recebidas = modelo_roteirizado(monkeypatch, [
+        chamada("buscar_produtos", termo="laptop"),
+        chamada("detalhar_produto", id=81),
+        chamada("detalhar_produto", id=81),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3}], mensagem="ok"),
+    ])
+
+    r = await agente.atender("3 laptops")
+
+    assert "já fez esta consulta" in recebidas[3][-1]["content"]
+    assert [c["ferramenta"] for c in r.ferramentas] == ["buscar_produtos", "detalhar_produto", "responder"]
+
+
+async def test_ultimo_passo_so_permite_encerrar(monkeypatch, catalogo):
+    monkeypatch.setattr(agente, "MAX_PASSOS", 3)
+    passos = [
+        chamada("buscar_produtos", termo="laptop"),
+        chamada("detalhar_produto", id=81),
+        chamada("responder", itens=[{"produto_id": 81, "quantidade": 3, "quantidade_pedida": 3}], mensagem="ok"),
+    ]
+    obrigatorias = []
+
+    async def completar(mensagens, ferramentas, obrigatoria=None):
+        obrigatorias.append(obrigatoria)
+        return {"role": "assistant", "content": "", "tool_calls": [passos.pop(0)]}
+
+    monkeypatch.setattr(llm, "completar", completar)
+
+    r = await agente.atender("3 laptops")
+
+    assert obrigatorias == [None, None, "responder"]
+    assert [i.produto_id for i in r.itens] == [81]

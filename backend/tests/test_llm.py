@@ -1,5 +1,7 @@
 """Erros da OpenRouter viram mensagens que dizem o que conferir. A OpenRouter é simulada: sem chave real."""
 
+import json
+
 import httpx
 import pytest
 import respx
@@ -75,3 +77,15 @@ async def test_soma_tokens_e_custo_das_chamadas_do_pedido():
 
     assert acumulado["tokens_entrada"] == 200 and acumulado["tokens_saida"] == 40
     assert round(acumulado["custo_usd"], 6) == 0.0006
+
+
+@respx.mock
+async def test_ferramenta_obrigatoria_vai_no_tool_choice():
+    rota = respx.post(llm.URL).mock(return_value=httpx.Response(200, json=RESPOSTA_OK))
+
+    await llm.completar([], [])
+    await llm.completar([], [], obrigatoria="responder")
+
+    corpos = [json.loads(c.request.content) for c in rota.calls]
+    assert corpos[0]["tool_choice"] == "required"
+    assert corpos[1]["tool_choice"] == {"type": "function", "function": {"name": "responder"}}

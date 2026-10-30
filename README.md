@@ -66,7 +66,8 @@ ver o catálogo fora do ar: `DUMMYJSON_TIMEOUT=0.01 docker compose up -d mcp` (n
 - **Parcial e moeda:** item que não existe fica de fora e o resto é gravado (`status: parcial`); a quantidade nunca
   muda. O catálogo está em US$ e não há câmbio confiável: pedido em reais volta pedindo o valor em dólares.
 - **Erros:** catálogo ou banco fora → 503; OpenRouter → 502 com o motivo; acima de 120 s → 504. Todo erro sai em
-  JSON com um código, que se acha no log: `docker compose logs backend | grep <código>`.
+  JSON com um código, que se acha no log: `docker compose logs backend | grep <código>`. Para o laço não acabar
+  sem resposta, consulta repetida não volta ao catálogo e, no último dos 12 passos, o modelo só pode encerrar.
 - **Ambiente:** portas só em `127.0.0.1`, porque a API gasta a chave e não tem autenticação. O MCP usa Streamable
   HTTP sem estado, com a proteção contra DNS rebinding ligada para os hosts de `MCP_ALLOWED_HOSTS`, e também
   atende em `localhost:8001/mcp`. Modelo `anthropic/claude-haiku-5.5` (`OPENROUTER_MODEL`), sem framework de
