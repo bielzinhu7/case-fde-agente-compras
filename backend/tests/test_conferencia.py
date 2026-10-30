@@ -171,3 +171,19 @@ def test_recusa_aponta_a_opcao_que_atende():
 
     assert "mínimo por pedido é 3" in problemas[0]
     assert "Opção que atende: Vivo S1 (id 134" in problemas[0]
+
+
+# --- orçamento total ------------------------------------------------------------------------------
+
+
+def test_recusa_quando_a_soma_passa_do_orcamento_total():
+    _, problemas = conferir_itens([item(134, 2)], vistos(VIVO), teto_total=Decimal(400))
+
+    assert "passa do orçamento" in problemas[0]
+
+
+def test_aceita_soma_dentro_do_orcamento_total():
+    itens, problemas = conferir_itens([item(134, 2)], vistos(VIVO), teto_total=Decimal(600))
+
+    assert problemas == []
+    assert sum(i.subtotal for i in itens) == Decimal("499.98")

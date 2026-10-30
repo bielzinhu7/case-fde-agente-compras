@@ -38,7 +38,8 @@ detalhar_produto só para os produtos que você vai propor, para confirmar antes
 - Quando precisar de várias consultas que não dependem uma da outra (buscas de itens diferentes, detalhes \
 de produtos diferentes), peça todas na mesma resposta: elas rodam juntas.
 - Respeite a quantidade e o orçamento do pedido. Os preços estão em US$; "até US$ X cada" é um teto por \
-unidade, e um preço igual ao teto atende.
+unidade, e um preço igual ao teto atende. Um orçamento para o pedido inteiro ("US$ 5.000 no total") limita a \
+soma dos itens.
 - Se mais de um produto atender, escolha o de menor preço e use o mesmo produto para todas as unidades. O \
 sistema confere: se houver opção mais barata da mesma categoria que atenda, a proposta volta. Se o pedido \
 exige aquele produto (marca, modelo ou característica citada), diga isso em motivo_escolha.
@@ -52,7 +53,8 @@ que ficou de fora. Se nada atender, não proponha itens e diga com clareza o que
 
 Para terminar, chame responder com os itens escolhidos (lista vazia se nada atende). Em cada item, ponha em \
 quantidade_pedida a quantidade que a pessoa pediu, e em teto_unitario o teto por unidade que o pedido deu \
-para aquele item (omita se não deu). Em faltou, liste cada coisa pedida que ficou de fora e o motivo (não \
+para aquele item (omita se não deu). Se o pedido deu um orçamento para o pedido inteiro, ponha em teto_total. \
+Em faltou, liste cada coisa pedida que ficou de fora e o motivo (não \
 existe no catálogo, passa do teto, falta estoque, quantidade mínima maior que a pedida); deixe vazio se nada \
 faltou. A mensagem é em português, de no máximo duas frases: o que foi escolhido e por quê, ou o que faltou. \
 Na mensagem, afirme só o que as ferramentas devolveram e não compare com produtos que você não detalhou. Não \
@@ -95,6 +97,10 @@ RESPONDER = {
                         "required": ["produto_id", "quantidade", "quantidade_pedida"],
                     },
                 },
+                "teto_total": {
+                    "type": "number",
+                    "description": "Orçamento para o pedido inteiro, em US$, se o pedido deu um",
+                },
                 "faltou": {
                     "type": "array",
                     "description": "O que o pedido pediu e ficou de fora; vazio se nada faltou",
@@ -130,6 +136,7 @@ class Faltante(BaseModel):
 
 class Proposta(BaseModel):
     itens: list[ItemProposto]
+    teto_total: Decimal | None = Field(default=None, gt=0)
     faltou: list[Faltante] = []
     mensagem: str
 
@@ -185,7 +192,9 @@ def registrar_produtos(vistos: dict[int, dict], ferramenta: str, conteudo: dict)
         vistos[conteudo["id"]] = conteudo
 
 
-def conferir_itens(propostos: list[ItemProposto], vistos: dict[int, dict]) -> tuple[list[Item], list[str]]:
+def conferir_itens(
+    propostos: list[ItemProposto], vistos: dict[int, dict], teto_total: Decimal | None = None
+) -> tuple[list[Item], list[str]]:
     """Monta os itens a partir do catálogo. Devolve (itens, problemas); com problema, não devolve item."""
     # Linhas repetidas do mesmo produto somam a quantidade e ficam com o menor teto.
     quantidades: dict[int, int] = {}
@@ -232,6 +241,13 @@ def conferir_itens(propostos: list[ItemProposto], vistos: dict[int, dict]) -> tu
                     "Escolha o mais barato ou, se o pedido exige este produto, diga o porquê em motivo_escolha"
                 )
         itens.append(Item(produto_id, p["titulo"], qtd, preco))
+
+    total = sum((i.subtotal for i in itens), Decimal(0))
+    if not problemas and teto_total is not None and total > teto_total:
+        problemas.append(
+            f"o total de US$ {total} passa do orçamento de US$ {teto_total} para o pedido inteiro; troque por "
+            "itens mais baratos ou deixe algum em faltou"
+        )
     return ([] if problemas else itens), problemas
 
 
@@ -272,6 +288,8 @@ def _valores_conhecidos(pedido: str, proposta: "Proposta", itens: list[Item], vi
     conhecidos = {Decimal(str(v["preco"])) for v in vistos.values()}
     conhecidos |= {i.subtotal for i in itens} | {sum((i.subtotal for i in itens), Decimal(0))}
     conhecidos |= {p.teto_unitario for p in proposta.itens if p.teto_unitario is not None}
+    if proposta.teto_total is not None:
+        conhecidos.add(proposta.teto_total)
     conhecidos |= {v for n in _DINHEIRO.findall(pedido) if (v := _ler_valor(n)) is not None}
     return conhecidos
 
@@ -387,7 +405,7 @@ def _responder(
     """Confere a proposta final. Devolve (resultado, "") se ela passa, ou (None, motivo) para o modelo corrigir."""
     try:
         proposta = Proposta.model_validate(args)
-        itens, problemas = conferir_itens(proposta.itens, vistos)
+        itens, problemas = conferir_itens(proposta.itens, vistos, proposta.teto_total)
         if not problemas:
             textos = [proposta.mensagem] + [f.motivo for f in proposta.faltou]
             problemas = conferir_valores_citados(textos, _valores_conhecidos(pedido, proposta, itens, vistos))

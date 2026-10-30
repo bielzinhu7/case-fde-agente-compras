@@ -23,7 +23,7 @@ def ids_da_categoria(categoria: str) -> set[int]:
     return {p["id"] for p in r.json()["products"]}
 
 
-def criada(categoria: str, quantidade: int, preco_max: int, faltou: str | None = None):
+def criada(categoria: str, quantidade: int, preco_max: int, faltou: str | None = None, total_max: int | None = None):
     ids = ids_da_categoria(categoria)
 
     def checar(resp: dict) -> str | None:
@@ -39,6 +39,8 @@ def criada(categoria: str, quantidade: int, preco_max: int, faltou: str | None =
         caros = [i["titulo"] for i in resp["itens"] if Decimal(i["preco_unitario"]) > preco_max]
         if caros:
             return f"acima de US$ {preco_max}: {caros}"
+        if total_max is not None and Decimal(resp["total"]) > total_max:
+            return f"total US$ {resp['total']} passa do orçamento de US$ {total_max}"
         ficou_de_fora = " ".join(f"{f['descricao']} {f['motivo']}" for f in resp["faltou"]).lower()
         if faltou and faltou not in ficou_de_fora:
             return f"o que faltou não cita {faltou!r}: {resp['faltou']}"
@@ -59,8 +61,8 @@ def nao_atendida():
 CASOS = [
     ("Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada.", criada("laptops", 3, 2000)),
     ("Preciso de 4 smartphones até US$ 300 cada.", criada("smartphones", 4, 300)),
-    # o mais barato (Realme C35) exige no mínimo 3: tem que escolher outro, não comprar 3
-    ("Preciso de 2 smartphones até US$ 300 cada.", criada("smartphones", 2, 300)),
+    # o mais barato (Realme C35) exige no mínimo 3: tem que escolher outro, não comprar 3, e caber no total
+    ("Preciso de 2 smartphones, com orçamento total de US$ 600.", criada("smartphones", 2, 600, total_max=600)),
     ("Preciso de 3 laptops até US$ 2.000 cada e 2 tratores.", criada("laptops", 3, 2000, faltou="trator")),
     ("Preciso de 30 MacBook Pro para a equipe.", nao_atendida()),  # estoque: 24
 ]
