@@ -262,9 +262,10 @@ def _ler_valor(numero: str) -> Decimal | None:
         decimal_sep = "," if numero.rfind(",") > numero.rfind(".") else "."
         numero = numero.replace("." if decimal_sep == "," else ",", "").replace(decimal_sep, ".")
     elif "," in numero or "." in numero:
+        # Um só separador com 1 ou 2 casas depois é decimal ("1.5", "1,50"); com 3 casas, ou repetido, é milhar.
         sep = "," if "," in numero else "."
         casas = len(numero.rsplit(sep, 1)[1])
-        numero = numero.replace(sep, ".") if casas == 2 and numero.count(sep) == 1 else numero.replace(sep, "")
+        numero = numero.replace(sep, ".") if casas != 3 and numero.count(sep) == 1 else numero.replace(sep, "")
     try:
         return Decimal(numero)
     except InvalidOperation:

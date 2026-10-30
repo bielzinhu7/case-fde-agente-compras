@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -18,6 +19,8 @@ from app import agente, db, llm, registro, saude
 
 registro.configurar()
 log = logging.getLogger(__name__)
+
+ERRO_INESPERADO = "Erro inesperado ao montar a requisição. O detalhe está no log do backend."
 
 # Erro conhecido -> (status HTTP, evento no log, mensagem para o chat).
 ERROS = [
@@ -44,7 +47,12 @@ async def id_do_pedido(request: Request, call_next):
     token = registro.pedido_id.set(registro.novo_id())
     inicio = time.monotonic()
     try:
-        resposta = await call_next(request)
+        try:
+            resposta = await call_next(request)
+        except Exception:
+            # Última rede: erro não previsto sai em JSON com o código, nunca como "Internal Server Error".
+            log.exception("erro_inesperado")
+            resposta = JSONResponse({"detail": ERRO_INESPERADO, "codigo": registro.pedido_id.get()}, status_code=500)
         resposta.headers["X-Pedido-Id"] = registro.pedido_id.get()
         # As checagens de saúde rodam a cada poucos segundos: só vão para o log quando falham.
         if request.url.path not in ("/health", "/saude") or resposta.status_code >= 400:
@@ -59,6 +67,16 @@ async def id_do_pedido(request: Request, call_next):
 async def erro_com_codigo(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     # O código aparece no chat; com ele se acha o pedido no log e em GET /atendimentos.
     return JSONResponse({"detail": exc.detail, "codigo": registro.pedido_id.get()}, status_code=exc.status_code)
+
+
+@app.exception_handler(RequestValidationError)
+async def pedido_invalido(request: Request, exc: RequestValidationError) -> JSONResponse:
+    # Sem isto, o chat mostraria só "HTTP 422" para um "oi".
+    return JSONResponse(
+        {"detail": "Escreva o que precisa comprar, com pelo menos 3 caracteres (no máximo 2.000).",
+         "codigo": registro.pedido_id.get()},
+        status_code=422,
+    )
 
 
 class Pedido(BaseModel):
@@ -80,7 +98,13 @@ async def criar_requisicao(entrada: Pedido, response: Response) -> dict:
         await _gravar_rastro(pedido, "erro", status_http, mensagem, None, [], uso, inicio)
         raise HTTPException(status_http, mensagem) from e
 
-    numero = await db.salvar(pedido, resultado, llm.MODELO) if resultado.itens else None
+    try:
+        numero = await db.salvar(pedido, resultado, llm.MODELO) if resultado.itens else None
+    except Exception as e:
+        log.exception("banco_indisponivel")
+        mensagem = "Montei a requisição, mas não consegui gravá-la no banco agora. Tente de novo em alguns instantes."
+        await _gravar_rastro(pedido, "erro", 503, mensagem, None, resultado.ferramentas, uso, inicio)
+        raise HTTPException(503, mensagem) from e
     status_http = 201 if numero else 200
     response.status_code = status_http
     await _gravar_rastro(pedido, resultado.status, status_http, resultado.mensagem, numero, resultado.ferramentas,
@@ -139,7 +163,7 @@ def _traduzir(erro: Exception) -> tuple[int, str, str]:
             return status_http, evento, mensagem.format(erro)
     # Bug ou falha não prevista: o log guarda o rastro e o chat recebe uma frase, não "Internal Server Error".
     log.exception("erro_inesperado")
-    return 500, "erro_inesperado", "Erro inesperado ao montar a requisição. O detalhe está no log do backend."
+    return 500, "erro_inesperado", ERRO_INESPERADO
 
 
 async def _gravar_rastro(pedido: str, status: str, status_http: int, mensagem: str, numero: int | None,

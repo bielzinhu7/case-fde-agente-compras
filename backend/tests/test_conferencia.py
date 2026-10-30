@@ -187,3 +187,9 @@ def test_aceita_soma_dentro_do_orcamento_total():
 
     assert problemas == []
     assert sum(i.subtotal for i in itens) == Decimal("499.98")
+
+
+def test_valor_com_uma_casa_decimal_e_lido_como_decimal():
+    """ "US$ 1.5" era lido como 15 e gerava uma recusa à toa."""
+    assert conferir_valores_citados(["custa US$ 1.5 e US$ 2,5"], {Decimal("1.5"), Decimal("2.5")}) == []
+    assert conferir_valores_citados(["custa US$ 2.000"], {Decimal(2000)}) == []

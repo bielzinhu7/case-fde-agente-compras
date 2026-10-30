@@ -144,7 +144,7 @@ def test_saude_503_diz_qual_parte_falhou(monkeypatch, cliente):
 
     monkeypatch.setattr(saude, "_banco", banco_ok)
     monkeypatch.setattr(saude, "_catalogo", catalogo_fora)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "chave-de-teste")
+    monkeypatch.setattr(saude, "_modelo", banco_ok)
 
     r = cliente.get("/saude")
 
@@ -162,6 +162,44 @@ def test_saude_200_com_tudo_de_pe(monkeypatch, cliente):
 
     monkeypatch.setattr(saude, "_banco", ok)
     monkeypatch.setattr(saude, "_catalogo", ok)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "chave-de-teste")
+    monkeypatch.setattr(saude, "_modelo", ok)
 
     assert cliente.get("/saude").status_code == 200
+
+
+def test_banco_fora_ao_gravar_vira_503_com_codigo_e_rastro(monkeypatch, cliente, rastros):
+    item = agente.Item(81, "Lenovo Yoga 920", 3, Decimal("1099.99"))
+    atender_com(monkeypatch, agente.Resultado([item], "ok", []))
+
+    async def banco_fora(*_):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(db, "salvar", banco_fora)
+
+    r = cliente.post("/requisicoes", json=PEDIDO)
+
+    assert r.status_code == 503
+    assert "gravá-la no banco" in r.json()["detail"]
+    assert r.json()["codigo"] == r.headers["X-Pedido-Id"]
+    assert [(x["status"], x["status_http"]) for x in rastros] == [("erro", 503)]
+
+
+def test_pedido_curto_recebe_mensagem_clara(cliente):
+    r = cliente.post("/requisicoes", json={"pedido": "oi"})
+
+    assert r.status_code == 422
+    assert "pelo menos 3 caracteres" in r.json()["detail"]
+    assert r.json()["codigo"] == r.headers["X-Pedido-Id"]
+
+
+def test_erro_nao_previsto_sai_em_json_com_codigo(monkeypatch):
+    async def quebra():
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(db, "listar", quebra)
+
+    r = TestClient(main.app, raise_server_exceptions=False).get("/requisicoes")
+
+    assert r.status_code == 500
+    assert r.json()["codigo"] == r.headers["X-Pedido-Id"]
+    assert "bug" not in r.json()["detail"]
