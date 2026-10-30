@@ -45,5 +45,13 @@ services:
       timeout: 3s
       retries: 10
 
+  chat:
+    build: ./chat
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   dados:
