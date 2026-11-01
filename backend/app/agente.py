@@ -50,6 +50,8 @@ em faltou que o valor precisa vir em dólares e, se quiser, cite os preços em U
 sistema confere: se houver opção mais barata da mesma categoria que atenda, a proposta volta. Se o pedido \
 exige aquele produto (marca, modelo ou característica citada), diga isso em motivo_escolha.
 - Nunca invente produto, preço ou estoque: use só o que as ferramentas devolveram.
+- Se a mensagem não for um pedido de compra (pergunta geral, conversa), não responda o conteúdo: chame \
+responder sem itens e diga só que você monta requisições de compra com produtos do catálogo.
 - Se o pedido citar um produto ou uma marca específica, não troque por outro.
 - Nunca mude a quantidade pedida: nem reduza por falta de estoque nem aumente por causa da quantidade \
 mínima do produto. Se um produto não serve para aquela quantidade, escolha outro que sirva ou deixe o item \

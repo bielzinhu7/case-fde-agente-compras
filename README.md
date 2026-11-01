@@ -105,5 +105,6 @@ Pedidos testados com o modelo e o catálogo de verdade:
 | "3 notebook ate 1500 dolar cada" | 201: 3 Lenovo Yoga 920, com o teto de US$ 1.500 conferido |
 | "2 laptops acima de US$ 1.500 cada" | 201: o mais barato acima do piso |
 | "30 MacBook Pro" | não atendida: há 24 em estoque |
+| "Qual a capital da França?" | não atendida: diz que só monta requisições de compra, sem responder a pergunta |
 | Catálogo fora do ar (`DUMMYJSON_TIMEOUT=0.01`) | 503: "Não consegui consultar o catálogo de produtos agora" |
 | Banco parado | 503 nas listagens, com o código do pedido |
