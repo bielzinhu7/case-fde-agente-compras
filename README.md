@@ -113,3 +113,4 @@ Pedidos testados com o modelo e o catálogo de verdade:
 | "Qual a capital da França?" | não atendida: diz que só monta requisições de compra, sem responder a pergunta |
 | Catálogo fora do ar (`DUMMYJSON_TIMEOUT=0.01`) | 503: "Não consegui consultar o catálogo de produtos agora" |
 | Banco parado | 503 nas listagens, com o código do pedido |
+| Pedido só com espaços | 422: "Escreva o que precisa comprar", sem chamar o modelo |

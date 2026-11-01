@@ -13,7 +13,7 @@ import psycopg
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import agente, db, llm, registro, saude
@@ -89,6 +89,9 @@ async def banco_fora(request: Request, exc: psycopg.OperationalError) -> JSONRes
 
 
 class Pedido(BaseModel):
+    # "   " passava como pedido de 3 caracteres e chegava à OpenRouter, que devolvia 400.
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     pedido: str = Field(
         min_length=3, max_length=2000, examples=["Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada."]
     )

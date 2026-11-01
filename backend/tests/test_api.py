@@ -185,8 +185,10 @@ def test_banco_fora_ao_gravar_vira_503_com_codigo_e_rastro(monkeypatch, cliente,
     assert [(x["status"], x["status_http"]) for x in rastros] == [("erro", 503)]
 
 
-def test_pedido_curto_recebe_mensagem_clara(cliente):
-    r = cliente.post("/requisicoes", json={"pedido": "oi"})
+@pytest.mark.parametrize("pedido", ["oi", "   ", "\n\t  oi  "])
+def test_pedido_curto_recebe_mensagem_clara(cliente, pedido):
+    """Só espaços chegava à OpenRouter, que respondia 400, e o chat mostrava um 502 culpando o modelo."""
+    r = cliente.post("/requisicoes", json={"pedido": pedido})
 
     assert r.status_code == 422
     assert "pelo menos 3 caracteres" in r.json()["detail"]
