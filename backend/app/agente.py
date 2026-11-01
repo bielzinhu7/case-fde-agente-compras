@@ -65,7 +65,9 @@ para aquele item (omita se não deu; piso e preço de referência, como "acima d
 US$ 2.500", não são teto). Se o pedido deu um orçamento para o pedido inteiro, ponha em teto_total. \
 Em faltou, liste cada coisa pedida que ficou de fora e o motivo (não \
 existe no catálogo, passa do teto, falta estoque, quantidade mínima maior que a pedida); deixe vazio se nada \
-faltou. A mensagem é em português, de no máximo duas frases: o que foi escolhido e por quê, ou o que faltou. \
+faltou. Se descartou um produto do catálogo, ponha o id dele em produto_id, com quantidade_pedida e \
+teto_unitario como nos itens: o sistema confere se outro produto da mesma busca atenderia. A mensagem é em \
+português, de no máximo duas frases: o que foi escolhido e por quê, ou o que faltou. \
 Na mensagem, afirme só o que as ferramentas devolveram e não compare com produtos que você não detalhou. Não \
 ofereça o que você não pode fazer: cada pedido é atendido de uma vez, sem continuação, e você não fala com \
 fornecedores. Evite repetir preços e total, que a tabela já mostra; se citar um valor, ele tem que ser \
@@ -118,6 +120,20 @@ RESPONDER = {
                         "properties": {
                             "descricao": {"type": "string", "description": "O que foi pedido, ex.: 2 tratores"},
                             "motivo": {"type": "string", "description": "Por que ficou de fora"},
+                            "produto_id": {
+                                "type": "integer",
+                                "description": "Se um produto do catálogo foi descartado (estoque, mínimo, teto), "
+                                "o id dele",
+                            },
+                            "quantidade_pedida": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": "A quantidade que a pessoa pediu deste item",
+                            },
+                            "teto_unitario": {
+                                "type": "number",
+                                "description": "Teto por unidade que o pedido deu para este item, em US$",
+                            },
                         },
                         "required": ["descricao", "motivo"],
                     },
@@ -141,6 +157,10 @@ class ItemProposto(BaseModel):
 class Faltante(BaseModel):
     descricao: str
     motivo: str
+    # Só para a conferência (não vão para o banco): com eles dá para ver se outro produto da mesma busca atenderia.
+    produto_id: int | None = None
+    quantidade_pedida: int | None = Field(default=None, ge=1)
+    teto_unitario: Decimal | None = Field(default=None, gt=0)
 
 
 class Proposta(BaseModel):
@@ -266,6 +286,21 @@ def conferir_itens(
             "itens mais baratos ou deixe algum em faltou"
         )
     return ([] if problemas else itens), problemas
+
+
+def conferir_faltantes(faltou: list[Faltante], vistos: dict[int, dict], questionados: set[int]) -> list[str]:
+    """Produto descartado com outro da mesma busca atendendo é questionado uma vez: o modelo chegou a desistir de
+    "meia dúzia de relógios" porque o mais barato exigia 7, com o Longines atendendo. Se ele mantiver, vale: o
+    pedido pode exigir o descartado ("30 MacBook Pro"). `questionados` guarda os ids já questionados na conversa."""
+    problemas = []
+    for f in faltou:
+        p = vistos.get(f.produto_id)
+        if p is None or f.quantidade_pedida is None or f.produto_id in questionados:
+            continue
+        if any(v["id"] != p["id"] for v in _que_atendem(p, f.quantidade_pedida, f.teto_unitario, vistos)):
+            questionados.add(f.produto_id)
+            problemas.append(f"{f.descricao} ficou de fora{_sugestao(p, f.quantidade_pedida, f.teto_unitario, vistos)}")
+    return problemas
 
 
 # Valor em dinheiro citado no texto: "US$ 1.099,99", "US$ 2.000", "$1,099.99", "USD 999".
@@ -476,6 +511,7 @@ async def _conversar(mcp: Client, ferramentas: list[dict], pedido: str) -> Resul
     chamadas_log: list[dict] = []
     vistos: dict[int, dict] = {}
     questionadas: set[int] = set()
+    descartados: set[int] = set()
     feitas: set[str] = set()
     mensagens = [{"role": "system", "content": PROMPT}, {"role": "user", "content": pedido}]
 
@@ -511,7 +547,7 @@ async def _conversar(mcp: Client, ferramentas: list[dict], pedido: str) -> Resul
             if args is None:
                 conteudo = "Argumentos inválidos: envie um JSON."
             elif nome == "responder":
-                resultado, conteudo = _responder(args, pedido, vistos, chamadas_log, questionadas)
+                resultado, conteudo = _responder(args, pedido, vistos, chamadas_log, questionadas, descartados)
                 if resultado:
                     return resultado
             else:
@@ -529,13 +565,15 @@ def _argumentos(chamada: dict) -> dict | None:
 
 
 def _responder(
-    args: dict, pedido: str, vistos: dict[int, dict], chamadas_log: list[dict], questionadas: set[int]
+    args: dict, pedido: str, vistos: dict[int, dict], chamadas_log: list[dict], questionadas: set[int],
+    descartados: set[int],
 ) -> tuple[Resultado | None, str]:
     """Confere a proposta final. Devolve (resultado, "") se ela passa, ou (None, motivo) para o modelo corrigir."""
     try:
         proposta = Proposta.model_validate(args)
         itens, problemas = conferir_itens(proposta.itens, vistos, proposta.teto_total)
         problemas = conferir_contra_o_pedido(proposta, pedido, questionadas) + problemas
+        problemas += conferir_faltantes(proposta.faltou, vistos, descartados)
         if not problemas:
             textos = [proposta.mensagem] + [f.motivo for f in proposta.faltou]
             problemas = conferir_valores_citados(textos, _valores_conhecidos(pedido, proposta, itens, vistos))
@@ -547,7 +585,7 @@ def _responder(
     if problemas:
         log.info("proposta_recusada", extra={"motivo": detalhe})
         return None, f"Proposta recusada pela conferência: {detalhe}. Corrija e chame responder de novo."
-    faltou = [f.model_dump() for f in proposta.faltou]
+    faltou = [f.model_dump(include={"descricao", "motivo"}) for f in proposta.faltou]
     log.info("proposta_aceita", extra={"itens": len(itens), "faltou": len(faltou)})
     return Resultado(itens, proposta.mensagem, chamadas_log, faltou), ""
 

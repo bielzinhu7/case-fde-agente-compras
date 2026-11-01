@@ -60,7 +60,8 @@ ver o catálogo fora do ar: `DUMMYJSON_TIMEOUT=0.01 docker compose up -d mcp` (n
   citados na mensagem, contra o catálogo, o pedido e o total. O que não passa volta ao modelo com o motivo.
 - **Escolha:** o mais barato que atende, o mesmo para todas as unidades, comparado dentro da mesma busca e
   categoria. Se o pedido exige outro produto (marca, modelo), o modelo diz por quê em `motivo_escolha`, que não é
-  conferido.
+  conferido. Produto descartado (estoque, mínimo, teto) também é conferido: se outro da mesma busca atende, o
+  modelo é questionado uma vez (`conferir_faltantes`), para não desistir com uma opção válida na mão.
 - **Busca literal:** na DummyJSON, "laptops" devolve 0 e "laptop" devolve 5. A ferramenta e o prompt pedem termo
   curto, em inglês e no singular.
 - **Parcial e moeda:** item que não existe fica de fora e o resto é gravado (`status: parcial`); a quantidade nunca
@@ -93,7 +94,10 @@ parte vieram o escopo, a escolha entre as opções e estas decisões:
 - pedi quatro avaliações pelos critérios do case, cada uma feita por uma sessão do Claude sem acesso à nossa
   conversa, e escolhi o que corrigir de cada uma;
 - pedi para conferir se cada mudança continuava dentro do que o case pede; foi assim que vimos que a conferência
-  de quantidade travava "meia dúzia".
+  de quantidade travava "meia dúzia";
+- pedi uma bateria de 34 pedidos variados, com gabarito tirado do catálogo, e um relatório de erros e acertos;
+  escolhi corrigir as três falhas que ela achou: teto em "dolar", pergunta fora de compras respondida e desistência
+  com produto que atendia.
 
 Pedidos testados com o modelo e o catálogo de verdade:
 
@@ -105,6 +109,7 @@ Pedidos testados com o modelo e o catálogo de verdade:
 | "3 notebook ate 1500 dolar cada" | 201: 3 Lenovo Yoga 920, com o teto de US$ 1.500 conferido |
 | "2 laptops acima de US$ 1.500 cada" | 201: o mais barato acima do piso |
 | "30 MacBook Pro" | não atendida: há 24 em estoque |
+| "Meia dúzia de relógios masculinos até US$ 2.000 cada" | 201: 6 Longines; o mais barato exige no mínimo 7 |
 | "Qual a capital da França?" | não atendida: diz que só monta requisições de compra, sem responder a pergunta |
 | Catálogo fora do ar (`DUMMYJSON_TIMEOUT=0.01`) | 503: "Não consegui consultar o catálogo de produtos agora" |
 | Banco parado | 503 nas listagens, com o código do pedido |

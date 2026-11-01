@@ -279,6 +279,36 @@ def test_produto_exigido_nao_recebe_sugestao_de_troca():
     assert "Lenovo" not in problemas[0]
 
 
+def faltante(produto_id, quantidade, teto=None):
+    from app.agente import Faltante
+
+    return Faltante(descricao=f"{quantidade} unidades", motivo="mínimo maior que o pedido", produto_id=produto_id,
+                    quantidade_pedida=quantidade, teto_unitario=teto)
+
+
+def test_descartado_com_outro_da_mesma_busca_atendendo_e_questionado_uma_vez():
+    """ "Meia dúzia de relógios": o mais barato exigia 7 e o modelo desistia, com outro da busca atendendo."""
+    from app.agente import conferir_faltantes
+
+    questionados = set()
+    primeira = conferir_faltantes([faltante(128, 2, teto=300)], vistos(REALME, VIVO), questionados)
+    segunda = conferir_faltantes([faltante(128, 2, teto=300)], vistos(REALME, VIVO), questionados)
+
+    assert "Vivo S1 (id 134" in primeira[0]
+    assert segunda == []  # mantido: o pedido pode exigir o descartado
+
+
+@pytest.mark.parametrize("faltou, v", [
+    (faltante(128, 2), vistos(REALME)),  # nenhum outro na busca
+    (faltante(128, 2, teto=200), vistos(REALME, VIVO)),  # o outro passa do teto
+    (faltante(128, 2), vistos_de(phone=[REALME], selfie=[{**VIVO, "categoria": "smartphones"}])),  # outra busca
+])
+def test_descartado_sem_alternativa_que_atenda_passa(faltou, v):
+    from app.agente import conferir_faltantes
+
+    assert conferir_faltantes([faltou], v, set()) == []
+
+
 def test_quantidade_por_extenso_nao_trava_o_pedido():
     """ "Meia dúzia" e "vinte" não estão em algarismos: a regra não confere, em vez de recusar para sempre."""
     from app.agente import conferir_contra_o_pedido
