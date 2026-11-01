@@ -368,6 +368,16 @@ def test_numero_sem_moeda_depois_de_ate_vale_como_teto(pedido):
     assert "não aparece no pedido" in conferir_contra_o_pedido(proposta([item(81, 3, teto=5000)]), pedido)[0]
 
 
+@pytest.mark.parametrize("pedido", ["3 notebook ate 1500 dolar cada", "3 notebooks até 1500 dólar cada",
+                                    "3 notebooks ate 1500 cada"])
+def test_dolar_no_singular_e_ate_sem_acento_valem_como_teto(pedido):
+    """Antes, "ate 1500 dolar" não era lido: o teto certo era recusado três vezes e o modelo acabava sem teto."""
+    from app.agente import conferir_contra_o_pedido
+
+    assert conferir_contra_o_pedido(proposta([item(81, 3, teto=1500)]), pedido) == []
+    assert "não aparece no pedido" in conferir_contra_o_pedido(proposta([item(81, 3, teto=5000)]), pedido)[0]
+
+
 def test_numero_sem_moeda_nao_obriga_a_declarar_teto():
     """ "Até 10 dias" também casa com "até <número>": vale como teto se o modelo declarar, mas não é exigido."""
     from app.agente import conferir_contra_o_pedido

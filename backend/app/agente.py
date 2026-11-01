@@ -304,7 +304,7 @@ def conferir_valores_citados(textos: list[str], conhecidos: set[Decimal]) -> lis
 # Valores e quantidades que a pessoa escreveu no pedido: é contra eles que o teto e a quantidade declarados pelo
 # modelo são conferidos, para a conferência não confiar no que o próprio modelo extraiu.
 _MIL = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:mil|k)\b", re.IGNORECASE)
-_DOLARES = re.compile(r"(\d[\d.,]*)\s*(?:d[oó]lares|usd)\b", re.IGNORECASE)
+_DOLARES = re.compile(r"(\d[\d.,]*)\s*(?:d[oó]lar(?:es)?|usd)\b", re.IGNORECASE)
 # Valor em reais ("R$ 3.000", "R$ 3 mil", "2 mil reais"): o catálogo está em US$ e aqui não há câmbio.
 _REAIS = re.compile(r"R\$\s*\d[\d.,]*(?:\s*(?:mil|k)\b)?|\d[\d.,]*\s*(?:mil\s+|k\s+)?reais\b", re.IGNORECASE)
 _EM_DOLAR = re.compile(r"US\$|(?<!R)\$|d[oó]lar|\busd\b", re.IGNORECASE)
@@ -315,13 +315,13 @@ PEDIDO_EM_REAIS = (
 # Valor que não é limite: piso ("acima de US$ 1.000") ou referência ("o último custou US$ 2.500").
 _NAO_E_LIMITE = re.compile(
     r"(?:acima de|a partir de|mais de|mais que|maior que|superior a|m[ií]nimo de|no m[ií]nimo|pelo menos|custou|"
-    r"custava|paguei|pagamos)\s+(?:US\$|\$|USD)?\s*\d[\d.,]*(?:\s*(?:mil|k|d[oó]lares|usd)\b)?",
+    r"custava|paguei|pagamos)\s+(?:US\$|\$|USD)?\s*\d[\d.,]*(?:\s*(?:mil|k|d[oó]lar(?:es)?|usd)\b)?",
     re.IGNORECASE,
 )
 # Número sem moeda depois de "até", "máximo", "orçamento", "teto" ou "limite" ("até 2000 cada") vale como teto,
 # mas não obriga a declarar um: "entrega em até 10 dias" também casa aqui.
 _LIMITE_SEM_MOEDA = re.compile(
-    r"\b(?:até|m[áa]ximo|or[çc]amento|teto|limite)(?:\s+(?:total|de|do))*\s+(\d[\d.,]*)", re.IGNORECASE
+    r"\b(?:at[ée]|m[áa]ximo|or[çc]amento|teto|limite)(?:\s+(?:total|de|do))*\s+(\d[\d.,]*)", re.IGNORECASE
 )
 _INTEIRO = re.compile(r"\b\d+\b")
 _POR_EXTENSO = {"um": 1, "uma": 1, "dois": 2, "duas": 2, "três": 3, "tres": 3, "quatro": 4, "cinco": 5,

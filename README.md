@@ -102,6 +102,7 @@ Pedidos testados com o modelo e o catálogo de verdade:
 | O exemplo do case | 201: 3 Lenovo Yoga 920, US$ 3.299,97 |
 | "Meia dúzia de smartphones e 2 carregadores" | 201 parcial: 6 smartphones; o carregador exige no mínimo 14 |
 | "3 notebooks até R$ 3.000 cada" | não atendida: pede o valor em dólares |
+| "3 notebook ate 1500 dolar cada" | 201: 3 Lenovo Yoga 920, com o teto de US$ 1.500 conferido |
 | "2 laptops acima de US$ 1.500 cada" | 201: o mais barato acima do piso |
 | "30 MacBook Pro" | não atendida: há 24 em estoque |
 | Catálogo fora do ar (`DUMMYJSON_TIMEOUT=0.01`) | 503: "Não consegui consultar o catálogo de produtos agora" |
