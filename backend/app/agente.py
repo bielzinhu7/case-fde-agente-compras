@@ -49,7 +49,8 @@ há câmbio): não proponha itens, diga em faltou que o valor precisa vir em dó
 em US$ que encontrou.
 - Se mais de um produto atender, escolha o de menor preço e use o mesmo produto para todas as unidades. O \
 sistema confere: se houver opção mais barata da mesma categoria que atenda, a proposta volta. Se o pedido \
-exige aquele produto (marca, modelo ou característica citada), diga isso em motivo_escolha.
+exige aquele produto (marca, modelo ou característica citada) ou exclui os mais baratos (marca recusada, \
+preço mínimo como "acima de US$ X" ou "entre US$ X e US$ Y"), diga isso em motivo_escolha.
 - Nunca invente produto, preço ou estoque: use só o que as ferramentas devolveram.
 - Se a mensagem não for um pedido de compra (pergunta geral, conversa), não responda o conteúdo: chame \
 responder sem itens e diga só que você monta requisições de compra com produtos do catálogo.
@@ -274,9 +275,10 @@ def conferir_itens(
             barato = _mais_barato_que_atende(p, qtd, teto, vistos)
             if barato:
                 problemas.append(
-                    f"{p['titulo']}: {barato['titulo']} (US$ {barato['preco']}), da mesma busca, também atende e "
-                    "é mais barato. Se o pedido aceita outro produto, troque; se exige este, diga o porquê em "
-                    "motivo_escolha"
+                    f"{p['titulo']}: {barato['titulo']} (US$ {barato['preco']}), da mesma busca, atende à "
+                    "quantidade e ao teto e é mais barato. Se ele serve ao pedido, troque. Se o pedido exige este "
+                    "produto ou exclui o mais barato (marca recusada, preço mínimo, característica), mantenha este "
+                    "e diga o porquê em motivo_escolha: esta conferência não lê essas condições"
                 )
         itens.append(Item(produto_id, p["titulo"], qtd, preco))
 

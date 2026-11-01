@@ -59,9 +59,10 @@ ver o catálogo fora do ar: `DUMMYJSON_TIMEOUT=0.01 docker compose up -d mcp` (n
   `conferir_itens` (`backend/app/agente.py`); teto e quantidade, também contra o texto do pedido; os valores
   citados na mensagem, contra o catálogo, o pedido e o total. O que não passa volta ao modelo com o motivo.
 - **Escolha:** o mais barato que atende, o mesmo para todas as unidades, comparado dentro da mesma busca e
-  categoria. Se o pedido exige outro produto (marca, modelo), o modelo diz por quê em `motivo_escolha`, que não é
-  conferido. Produto descartado (estoque, mínimo, teto) também é conferido: se outro da mesma busca atende, o
-  modelo é questionado uma vez (`conferir_faltantes`), para não desistir com uma opção válida na mão.
+  categoria. Se o pedido exige outro produto (marca, modelo) ou exclui o mais barato ("não da Lenovo", "entre
+  US$ 1.400 e US$ 1.600"), o modelo diz por quê em `motivo_escolha`, que não é conferido. Produto descartado
+  (estoque, mínimo, teto) também é conferido: se outro da mesma busca atende, o modelo é questionado uma vez
+  (`conferir_faltantes`), para não desistir com uma opção válida na mão.
 - **Busca literal:** na DummyJSON, "laptops" devolve 0 e "laptop" devolve 5. A ferramenta e o prompt pedem termo
   curto, em inglês e no singular.
 - **Parcial e moeda:** item que não existe fica de fora e o resto é gravado (`status: parcial`); a quantidade nunca
@@ -111,6 +112,7 @@ Pedidos testados com o modelo e o catálogo de verdade:
 | "Preciso de 2,5 laptops" | não atendida: pede uma quantidade inteira |
 | "3 notebook ate 1500 dolar cada" | 201: 3 Lenovo Yoga 920, com o teto de US$ 1.500 conferido |
 | "2 laptops acima de US$ 1.500 cada" | 201: o mais barato acima do piso |
+| "3 laptops, mas não da Lenovo" | 201: 3 Huawei Matebook X Pro, o mais barato fora da Lenovo |
 | "30 MacBook Pro" | não atendida: há 24 em estoque |
 | "Meia dúzia de relógios masculinos até US$ 2.000 cada" | 201: 6 Longines; o mais barato exige no mínimo 7 |
 | "Qual a capital da França?" | não atendida: diz que só monta requisições de compra, sem responder a pergunta |
