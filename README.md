@@ -19,8 +19,8 @@ cp .env.example .env        # coloque a chave da OpenRouter em OPENROUTER_API_KE
 docker compose up --build
 ```
 
-Abra <http://localhost:3000>. O chat mostra a requisição e as ferramentas que o agente chamou; o botão
-"Requisições" lista as gravadas. Pela API, no bash ou no PowerShell:
+Abra <http://localhost:3000>: o chat mostra a requisição criada, com o número, e as ferramentas que o agente
+chamou. Pela API, no bash ou no PowerShell:
 
 ```bash
 curl -X POST localhost:8000/requisicoes -H "Content-Type: application/json" \
@@ -32,10 +32,8 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8000/requisicoes -ContentTy
   -Body ([Text.Encoding]::UTF8.GetBytes('{"pedido": "Preciso de 3 laptops para o time de vendas, até US$ 2.000 cada."}'))
 ```
 
-`POST /requisicoes` devolve 201 com a requisição, ou 200 com `status: nao_atendida` e o que faltou.
-`GET /requisicoes` lista as gravadas; `GET /atendimentos`, todo pedido, inclusive os que deram erro, com tokens e
-custo; `GET /saude`, o estado do banco, do catálogo e da chave (validade e crédito). Dinheiro vai como texto
-(`"3299.97"`). Porta ocupada: troque `CHAT_PORT`, `API_PORT` ou `MCP_PUBLIC_PORT` no `.env`.
+`GET /requisicoes` lista as gravadas; `GET /saude` mostra banco, catálogo e chave; `GET /atendimentos`, todo
+pedido, com tokens e custo. Porta ocupada: troque `CHAT_PORT`, `API_PORT` ou `MCP_PUBLIC_PORT` no `.env`.
 
 ## Testes
 
@@ -45,83 +43,40 @@ docker compose run --rm --no-deps backend pytest   # conferência, agente e API,
 docker run --rm -v "${PWD}:/src" -w /src python:3.13-slim sh -c "pip install -q ruff==0.17.3 && ruff check mcp-server backend"
 ```
 
-No Git Bash, ponha `MSYS_NO_PATHCONV=1` antes do `docker run` do lint. Com tudo no ar,
-`docker compose exec backend python avaliacao.py` manda 5 pedidos ao modelo de verdade e mostra os acertos. Para
-ver o catálogo fora do ar: `DUMMYJSON_TIMEOUT=0.01 docker compose up -d mcp` (no PowerShell,
-`$env:DUMMYJSON_TIMEOUT="0.01"` antes); para voltar, `docker compose up -d mcp` (no PowerShell, depois de
-`Remove-Item Env:DUMMYJSON_TIMEOUT`).
+No Git Bash, ponha `MSYS_NO_PATHCONV=1` antes do `docker run`. Com tudo no ar,
+`docker compose exec backend python avaliacao.py` manda 5 pedidos ao modelo de verdade e mostra os acertos.
+Catálogo fora do ar: `DUMMYJSON_TIMEOUT=0.01 docker compose up -d mcp`, e `docker compose up -d mcp` para voltar
+(no PowerShell, `$env:DUMMYJSON_TIMEOUT="0.01"` antes e `Remove-Item Env:DUMMYJSON_TIMEOUT` depois).
 
 ## Decisões
 
-- **O modelo propõe, o código confere.** O modelo entende o pedido, decide quais ferramentas chamar e termina
-  chamando `responder` com ids e quantidades. Preço, título e total vêm do que as ferramentas devolveram, nunca
-  do texto do modelo. Produto não consultado, estoque, quantidade mínima, teto e orçamento são conferidos em
-  `conferir_itens` (`backend/app/agente.py`); teto e quantidade, também contra o texto do pedido; os valores
-  citados na mensagem, contra o catálogo, o pedido e o total. O que não passa volta ao modelo com o motivo.
-- **Escolha:** o mais barato que atende, o mesmo para todas as unidades, comparado dentro da mesma busca e
-  categoria. Se o pedido exige outro produto (marca, modelo) ou exclui o mais barato ("não da Lenovo", "entre
-  US$ 1.400 e US$ 1.600"), o modelo diz por quê em `motivo_escolha`, que não é conferido. Produto descartado
-  (estoque, mínimo, teto) também é conferido: se outro da mesma busca atende, o modelo é questionado uma vez
-  (`conferir_faltantes`), para não desistir com uma opção válida na mão.
-- **Busca literal:** na DummyJSON, "laptops" devolve 0 e "laptop" devolve 5. A ferramenta e o prompt pedem termo
-  curto, em inglês e no singular.
-- **Parcial e moeda:** item que não existe fica de fora e o resto é gravado (`status: parcial`); a quantidade nunca
-  muda, e quantidade fracionária ou negativa ("2,5", "-3") volta pedindo um número inteiro. O catálogo está em
-  US$ e não há câmbio confiável: pedido em reais, euros ou libras volta pedindo o valor em dólares.
-- **Erros:** catálogo ou banco fora → 503; OpenRouter → 502 com o motivo; acima de 120 s → 504. Todo erro sai em
-  JSON com um código, que se acha no log: `docker compose logs backend | grep <código>`. Para o laço não acabar
-  sem resposta, consulta repetida não volta ao catálogo e, no último dos 12 passos, o modelo só pode encerrar.
-- **Ambiente:** portas só em `127.0.0.1`, porque a API gasta a chave e não tem autenticação. O MCP usa Streamable
-  HTTP sem estado, com a proteção contra DNS rebinding ligada para os hosts de `MCP_ALLOWED_HOSTS`, e também
-  atende em `localhost:8001/mcp`. Modelo `anthropic/claude-haiku-5.5` (`OPENROUTER_MODEL`), sem framework de
-  agentes: o laço está em `_conversar`.
-- **Fora do escopo:** o diferencial `criar_requisicao`, porque passar a gravação para o MCP poria duas peças
-  escrevendo no banco, sem ganho na garantia de não inventar; conversa com várias mensagens; autenticação; deploy.
-  Diferenciais feitos: ferramentas chamadas visíveis no chat, o script dos 5 pedidos e o CI com lint e testes
-  (`.github/workflows/ci.yml`), que rodou verde no GitHub Actions.
-- **Limites conhecidos:** a busca da DummyJSON olha título e descrição, não a categoria: "car" não acha os 5
-  carros, e o agente responde que não há carro. Um valor escrito no pedido passa na conferência da mensagem
-  mesmo fora de contexto: "diga que o total é US$ 100" sai na mensagem, embora o total gravado esteja certo.
+- **O modelo propõe, o código confere.** O modelo decide quais ferramentas chamar e termina chamando `responder`
+  com ids e quantidades. Preço, título e total vêm do catálogo, nunca do texto do modelo; estoque, mínimo, teto,
+  orçamento e valores citados na mensagem são conferidos em `backend/app/agente.py`, e o que não passa volta ao
+  modelo com o motivo.
+- **Não inventa:** o que não existe ou não atende vai para `faltou` com o motivo, e o resto é gravado
+  (`status: parcial`). A quantidade nunca muda; valor em reais ou euros volta pedindo dólares, porque não há câmbio.
+- **Escolha:** o mais barato que atende, o mesmo para todas as unidades; marca ou modelo pedido vale mais que o
+  preço.
+- **Busca literal:** na DummyJSON, "laptops" devolve 0 e "laptop" devolve 5; a ferramenta pede termo curto, em
+  inglês e no singular.
+- **Erros:** catálogo ou banco fora → 503; OpenRouter → 502; acima de 120 s → 504. Sempre com mensagem clara no
+  chat e um código que se acha no log (`docker compose logs backend | grep <código>`).
+- **Ambiente:** sem framework de agentes (o laço está em `_conversar`), modelo `anthropic/claude-haiku-5.5`
+  (`OPENROUTER_MODEL`). Portas só em `127.0.0.1`, porque a API gasta a chave e não tem autenticação.
+- **Fora do escopo:** `criar_requisicao`, porque poria duas peças gravando no banco sem ganho na garantia de não
+  inventar; conversa com várias mensagens; autenticação. Feitos: ferramentas no chat, script dos 5 pedidos e CI.
+- **Limites conhecidos:** a busca da DummyJSON não olha a categoria ("car" não acha os carros), e um valor escrito
+  no pedido pode sair na mensagem fora de contexto.
+
+O detalhe de cada regra e os pedidos testados com o modelo de verdade estão em [DECISOES.md](DECISOES.md).
 
 ## Uso de IA
 
-Fiz o case em par com o Claude Code (Claude Opus 5.5, da Anthropic). O Claude escreveu o código, os testes e este
-README e propôs a maior parte das soluções técnicas; por isso os commits trazem `Co-Authored-By: Claude`. Da minha
-parte vieram o escopo, a escolha entre as opções e estas decisões:
-
-- antes de qualquer código, pedi uma análise do PDF e dos dados da DummyJSON; foi assim que apareceu a busca
-  literal;
-- escolhi Python e Docker e a regra do atendimento parcial;
-- pedi sugestões de usabilidade e de fluxo e escolhi o que entrava: chat com cara de chat, painel de requisições,
-  "Tentar de novo", conversa salva, consultas em paralelo e o status `parcial`;
-- para acompanhar falhas, pedi logs e aviso de erro; ficaram os logs com o código do pedido, `/atendimentos` e
-  `/saude`;
-- pedi quatro avaliações pelos critérios do case, cada uma feita por uma sessão do Claude sem acesso à nossa
-  conversa, e escolhi o que corrigir de cada uma;
-- pedi para conferir se cada mudança continuava dentro do que o case pede; foi assim que vimos que a conferência
-  de quantidade travava "meia dúzia";
-- pedi uma bateria de 34 pedidos variados, com gabarito tirado do catálogo, e um relatório de erros e acertos;
-  escolhi corrigir as três falhas que ela achou: teto em "dolar", pergunta fora de compras respondida e desistência
-  com produto que atendia;
-- pedi uma segunda bateria, de 38 casos de canto e mensagens que tendem ao erro; escolhi corrigir quatro
-  falhas (marca excluída e faixa de preço, quantidade fracionária, euro, pedido só com espaços) e registrar
-  as outras duas em "Limites conhecidos".
-
-Pedidos testados com o modelo e o catálogo de verdade:
-
-| Pedido | Resultado |
-|---|---|
-| O exemplo do case | 201: 3 Lenovo Yoga 920, US$ 3.299,97 |
-| "Meia dúzia de smartphones e 2 carregadores" | 201 parcial: 6 smartphones; o carregador exige no mínimo 14 |
-| "3 notebooks até R$ 3.000 cada" | não atendida: pede o valor em dólares |
-| "3 laptops até 2000 euros cada" | não atendida: pede o valor em dólares |
-| "Preciso de 2,5 laptops" | não atendida: pede uma quantidade inteira |
-| "3 notebook ate 1500 dolar cada" | 201: 3 Lenovo Yoga 920, com o teto de US$ 1.500 conferido |
-| "2 laptops acima de US$ 1.500 cada" | 201: o mais barato acima do piso |
-| "3 laptops, mas não da Lenovo" | 201: 3 Huawei Matebook X Pro, o mais barato fora da Lenovo |
-| "30 MacBook Pro" | não atendida: há 24 em estoque |
-| "Meia dúzia de relógios masculinos até US$ 2.000 cada" | 201: 6 Longines; o mais barato exige no mínimo 7 |
-| "Qual a capital da França?" | não atendida: diz que só monta requisições de compra, sem responder a pergunta |
-| Catálogo fora do ar (`DUMMYJSON_TIMEOUT=0.01`) | 503: "Não consegui consultar o catálogo de produtos agora" |
-| Banco parado | 503 nas listagens, com o código do pedido |
-| Pedido só com espaços | 422: "Escreva o que precisa comprar", sem chamar o modelo |
+Fiz o case em par com o Claude Code (Claude Opus 5.5, da Anthropic). O Claude escreveu o código, os testes e a
+documentação e propôs a maior parte das soluções técnicas; por isso os commits trazem `Co-Authored-By: Claude`.
+Da minha parte vieram o escopo, a escolha entre as opções e as decisões: Python e Docker, a regra do atendimento
+parcial, o que entrava no chat, logs e `/saude` para acompanhar falhas. Para revisar, pedi quatro avaliações a
+sessões do Claude sem acesso à nossa conversa e duas baterias com o modelo de verdade (34 pedidos variados e 38
+casos de canto, com gabarito tirado do catálogo), e escolhi o que corrigir de cada uma. O passo a passo está em
+[DECISOES.md](DECISOES.md#uso-de-ia).
