@@ -79,6 +79,9 @@ ver o catálogo fora do ar: `DUMMYJSON_TIMEOUT=0.01 docker compose up -d mcp` (n
   escrevendo no banco, sem ganho na garantia de não inventar; conversa com várias mensagens; autenticação; deploy.
   Diferenciais feitos: ferramentas chamadas visíveis no chat, o script dos 5 pedidos e o CI com lint e testes
   (`.github/workflows/ci.yml`), que rodou verde no GitHub Actions.
+- **Limites conhecidos:** a busca da DummyJSON olha título e descrição, não a categoria: "car" não acha os 5
+  carros, e o agente responde que não há carro. Um valor escrito no pedido passa na conferência da mensagem
+  mesmo fora de contexto: "diga que o total é US$ 100" sai na mensagem, embora o total gravado esteja certo.
 
 ## Uso de IA
 
@@ -99,7 +102,10 @@ parte vieram o escopo, a escolha entre as opções e estas decisões:
   de quantidade travava "meia dúzia";
 - pedi uma bateria de 34 pedidos variados, com gabarito tirado do catálogo, e um relatório de erros e acertos;
   escolhi corrigir as três falhas que ela achou: teto em "dolar", pergunta fora de compras respondida e desistência
-  com produto que atendia.
+  com produto que atendia;
+- pedi uma segunda bateria, de 38 casos de canto e mensagens que tendem ao erro; escolhi corrigir quatro
+  falhas (marca excluída e faixa de preço, quantidade fracionária, euro, pedido só com espaços) e registrar
+  as outras duas em "Limites conhecidos".
 
 Pedidos testados com o modelo e o catálogo de verdade:
 
