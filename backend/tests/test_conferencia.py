@@ -343,13 +343,16 @@ def test_manter_uma_quantidade_nao_libera_outra():
     assert "quantidade_pedida 7" in problemas[0]
 
 
-# --- valor em reais -----------------------------------------------------------------------------------
+# --- valor em reais ou outra moeda ---------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("pedido", [
     "Preciso de 3 notebooks até R$ 3.000 cada",
     "3 notebooks, até 2 mil reais cada",
     "Preciso de 3 notebooks, orçamento de R$ 9 mil",
+    "3 laptops até 2000 euros cada",  # antes gravava com teto de US$ 2.000
+    "3 laptops, até € 1.500 cada",
+    "3 laptops até 1500 libras cada",
 ])
 def test_valor_em_reais_nao_vira_teto_em_dolar(pedido):
     """Sem câmbio, R$ 3.000 virava US$ 3.000, e a requisição saía com laptops de uns R$ 6 mil cada."""
@@ -357,8 +360,8 @@ def test_valor_em_reais_nao_vira_teto_em_dolar(pedido):
 
     assert valores_do_pedido(pedido) == set()
     assert quantidades_do_pedido(pedido) == {3}
-    assert "em reais" in conferir_contra_o_pedido(proposta([item(81, 3, teto=3000)]), pedido)[0]
-    assert "em reais" in conferir_contra_o_pedido(proposta([item(81, 3)]), pedido)[0]
+    assert "outra moeda" in conferir_contra_o_pedido(proposta([item(81, 3, teto=3000)]), pedido)[0]
+    assert "outra moeda" in conferir_contra_o_pedido(proposta([item(81, 3)]), pedido)[0]
     assert conferir_contra_o_pedido(proposta([]), pedido) == []
 
 

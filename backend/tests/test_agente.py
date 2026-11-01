@@ -314,7 +314,7 @@ async def test_pedido_em_reais_nao_e_convertido_para_dolar(monkeypatch, catalogo
 
     r = await agente.atender("Preciso de 3 notebooks até R$ 3.000 cada")
 
-    assert "em reais" in recebidas[2][-1]["content"]
+    assert "outra moeda" in recebidas[2][-1]["content"]
     assert r.status == "nao_atendida"
 
 

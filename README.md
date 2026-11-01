@@ -65,7 +65,8 @@ ver o catálogo fora do ar: `DUMMYJSON_TIMEOUT=0.01 docker compose up -d mcp` (n
 - **Busca literal:** na DummyJSON, "laptops" devolve 0 e "laptop" devolve 5. A ferramenta e o prompt pedem termo
   curto, em inglês e no singular.
 - **Parcial e moeda:** item que não existe fica de fora e o resto é gravado (`status: parcial`); a quantidade nunca
-  muda. O catálogo está em US$ e não há câmbio confiável: pedido em reais volta pedindo o valor em dólares.
+  muda. O catálogo está em US$ e não há câmbio confiável: pedido em reais, euros ou libras volta pedindo o valor
+  em dólares.
 - **Erros:** catálogo ou banco fora → 503; OpenRouter → 502 com o motivo; acima de 120 s → 504. Todo erro sai em
   JSON com um código, que se acha no log: `docker compose logs backend | grep <código>`. Para o laço não acabar
   sem resposta, consulta repetida não volta ao catálogo e, no último dos 12 passos, o modelo só pode encerrar.
@@ -106,6 +107,7 @@ Pedidos testados com o modelo e o catálogo de verdade:
 | O exemplo do case | 201: 3 Lenovo Yoga 920, US$ 3.299,97 |
 | "Meia dúzia de smartphones e 2 carregadores" | 201 parcial: 6 smartphones; o carregador exige no mínimo 14 |
 | "3 notebooks até R$ 3.000 cada" | não atendida: pede o valor em dólares |
+| "3 laptops até 2000 euros cada" | não atendida: pede o valor em dólares |
 | "3 notebook ate 1500 dolar cada" | 201: 3 Lenovo Yoga 920, com o teto de US$ 1.500 conferido |
 | "2 laptops acima de US$ 1.500 cada" | 201: o mais barato acima do piso |
 | "30 MacBook Pro" | não atendida: há 24 em estoque |

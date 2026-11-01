@@ -44,8 +44,9 @@ detalhar_produto só para os produtos que você vai propor, para confirmar antes
 de produtos diferentes), peça todas na mesma resposta: elas rodam juntas.
 - Respeite a quantidade e o orçamento do pedido. Os preços estão em US$; "até US$ X cada" é um teto por \
 unidade, e um preço igual ao teto atende. Um orçamento para o pedido inteiro ("US$ 5.000 no total") limita a \
-soma dos itens. Se o pedido der o valor em reais, não converta (aqui não há câmbio): não proponha itens, diga \
-em faltou que o valor precisa vir em dólares e, se quiser, cite os preços em US$ que encontrou.
+soma dos itens. Se o pedido der o valor em reais ou em outra moeda que não o dólar, não converta (aqui não \
+há câmbio): não proponha itens, diga em faltou que o valor precisa vir em dólares e, se quiser, cite os preços \
+em US$ que encontrou.
 - Se mais de um produto atender, escolha o de menor preço e use o mesmo produto para todas as unidades. O \
 sistema confere: se houver opção mais barata da mesma categoria que atenda, a proposta volta. Se o pedido \
 exige aquele produto (marca, modelo ou característica citada), diga isso em motivo_escolha.
@@ -342,12 +343,17 @@ def conferir_valores_citados(textos: list[str], conhecidos: set[Decimal]) -> lis
 # modelo são conferidos, para a conferência não confiar no que o próprio modelo extraiu.
 _MIL = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:mil|k)\b", re.IGNORECASE)
 _DOLARES = re.compile(r"(\d[\d.,]*)\s*(?:d[oó]lar(?:es)?|usd)\b", re.IGNORECASE)
-# Valor em reais ("R$ 3.000", "R$ 3 mil", "2 mil reais"): o catálogo está em US$ e aqui não há câmbio.
-_REAIS = re.compile(r"R\$\s*\d[\d.,]*(?:\s*(?:mil|k)\b)?|\d[\d.,]*\s*(?:mil\s+|k\s+)?reais\b", re.IGNORECASE)
+# Valor em outra moeda ("R$ 3.000", "2 mil reais", "2000 euros", "€ 500"): o catálogo está em US$ e aqui não há
+# câmbio.
+_OUTRA_MOEDA = re.compile(
+    r"(?:R\$|€|£|\bEUR)\s*\d[\d.,]*(?:\s*(?:mil|k)\b)?"
+    r"|\d[\d.,]*\s*(?:mil\s+|k\s+)?(?:(?:reais|euros?|libras?|eur)\b|€|£)",
+    re.IGNORECASE,
+)
 _EM_DOLAR = re.compile(r"US\$|(?<!R)\$|d[oó]lar|\busd\b", re.IGNORECASE)
-PEDIDO_EM_REAIS = (
-    "o pedido dá o valor em reais e o catálogo está em US$. Não converta, porque aqui não há câmbio: não proponha "
-    "itens nem teto, e diga em faltou que o valor precisa vir em dólares"
+PEDIDO_EM_OUTRA_MOEDA = (
+    "o pedido dá o valor em outra moeda (reais, euros, libras) e o catálogo está em US$. Não converta, porque aqui "
+    "não há câmbio: não proponha itens nem teto, e diga em faltou que o valor precisa vir em dólares"
 )
 # Valor que não é limite: piso ("acima de US$ 1.000") ou referência ("o último custou US$ 2.500").
 _NAO_E_LIMITE = re.compile(
@@ -366,9 +372,9 @@ _POR_EXTENSO = {"um": 1, "uma": 1, "dois": 2, "duas": 2, "três": 3, "tres": 3, 
 
 
 def valores_do_pedido(pedido: str) -> set[Decimal]:
-    """Dólares escritos no pedido: "US$ 2.000", "$2000", "2 mil", "2k", "2000 dólares". Valor em reais fica de
+    """Dólares escritos no pedido: "US$ 2.000", "$2000", "2 mil", "2k", "2000 dólares". Valor em outra moeda fica de
     fora: sem câmbio, ele não vale como teto em dólar."""
-    pedido = _REAIS.sub(" ", pedido)
+    pedido = _OUTRA_MOEDA.sub(" ", pedido)
     valores = {v for n in _DINHEIRO.findall(pedido) + _DOLARES.findall(pedido) if (v := _ler_valor(n)) is not None}
     valores |= {v * 1000 for n in _MIL.findall(pedido) if (v := _ler_valor(n)) is not None}
     return valores
@@ -378,7 +384,7 @@ def quantidades_do_pedido(pedido: str) -> set[int] | None:
     """Quantidades escritas no pedido. None quando nenhuma vem em algarismos: "meia dúzia", "vinte e cinco" ou
     "um laptop" não dão para conferir com segurança, e uma regra errada aqui travaria um pedido legítimo."""
     sem_dinheiro = pedido
-    for padrao in (_REAIS, _DINHEIRO, _DOLARES, _MIL):  # "US$ 2.000", "2 mil reais" e "2 mil" não são quantidade
+    for padrao in (_OUTRA_MOEDA, _DINHEIRO, _DOLARES, _MIL):  # "US$ 2.000", "2 mil reais" e "2 mil" não são quantidade
         sem_dinheiro = padrao.sub(" ", sem_dinheiro)
     numeros = {int(n) for n in _INTEIRO.findall(sem_dinheiro)}
     if not numeros:
@@ -402,9 +408,9 @@ def conferir_contra_o_pedido(proposta: "Proposta", pedido: str, questionadas: se
     if proposta.teto_total is not None:
         tetos.append(proposta.teto_total)
 
-    if _REAIS.search(pedido) and not _EM_DOLAR.search(pedido):
+    if _OUTRA_MOEDA.search(pedido) and not _EM_DOLAR.search(pedido):
         # Converter exigiria um câmbio que o agente não tem, e o que ele inventasse passaria como teto.
-        return [PEDIDO_EM_REAIS] if proposta.itens or tetos else []
+        return [PEDIDO_EM_OUTRA_MOEDA] if proposta.itens or tetos else []
 
     problemas = [
         f"o teto US$ {t} não aparece no pedido como limite; use o valor que a pessoa deu como teto, ou omita se ela "
