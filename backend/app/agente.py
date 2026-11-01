@@ -366,7 +366,14 @@ _NAO_E_LIMITE = re.compile(
 _LIMITE_SEM_MOEDA = re.compile(
     r"\b(?:at[ée]|m[áa]ximo|or[çc]amento|teto|limite)(?:\s+(?:total|de|do))*\s+(\d[\d.,]*)", re.IGNORECASE
 )
-_INTEIRO = re.compile(r"\b\d+\b")
+# Inteiro solto: o 2 e o 5 de "2,5" e o 3 de "-3" não contam, senão "2,5 laptops" passava como 2.
+_INTEIRO = re.compile(r"(?<![\d.,-])\d+(?![.,]\d)")
+# Quantidade que não dá para comprar: fracionária ("2,5", "1.5") ou negativa ("-3"). "1.000" é milhar, não fração.
+_QUANTIDADE_INVALIDA = re.compile(r"(?<![\w.,])-\d+|(?<![\d.,])\d+[.,]\d{1,2}(?![\d.,])")
+QUANTIDADE_INVALIDA = (
+    "o pedido traz a quantidade {}, que não é um número inteiro positivo. Não arredonde nem troque o sinal: não "
+    "proponha itens e diga em faltou que a quantidade precisa ser um número inteiro"
+)
 _POR_EXTENSO = {"um": 1, "uma": 1, "dois": 2, "duas": 2, "três": 3, "tres": 3, "quatro": 4, "cinco": 5,
                 "seis": 6, "sete": 7, "oito": 8, "nove": 9, "dez": 10}
 
@@ -411,6 +418,11 @@ def conferir_contra_o_pedido(proposta: "Proposta", pedido: str, questionadas: se
     if _OUTRA_MOEDA.search(pedido) and not _EM_DOLAR.search(pedido):
         # Converter exigiria um câmbio que o agente não tem, e o que ele inventasse passaria como teto.
         return [PEDIDO_EM_OUTRA_MOEDA] if proposta.itens or tetos else []
+    sem_valores = pedido
+    for padrao in (_OUTRA_MOEDA, _DINHEIRO, _DOLARES, _MIL, _NAO_E_LIMITE, _LIMITE_SEM_MOEDA):  # "até 1500,50"
+        sem_valores = padrao.sub(" ", sem_valores)
+    if proposta.itens and (invalida := _QUANTIDADE_INVALIDA.search(sem_valores)):
+        return [QUANTIDADE_INVALIDA.format(invalida.group())]
 
     problemas = [
         f"o teto US$ {t} não aparece no pedido como limite; use o valor que a pessoa deu como teto, ou omita se ela "

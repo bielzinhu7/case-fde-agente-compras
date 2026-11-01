@@ -374,6 +374,38 @@ def test_valor_em_dolar_vale_mesmo_com_reais_citados():
     assert "não aparece no pedido" in conferir_contra_o_pedido(proposta([item(81, 3, teto=11000)]), pedido)[0]
 
 
+# --- quantidade que não dá para comprar -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pedido, quantidade", [
+    ("Preciso de 2,5 laptops", "2,5"),
+    ("Preciso de 1.5 laptops", "1.5"),
+    ("Preciso de -3 laptops", "-3"),
+])
+def test_quantidade_fracionaria_ou_negativa_nao_vira_inteira(pedido, quantidade):
+    """Antes "2,5 laptops" era gravado como 2, e "-3 laptops" como 3: o 2 e o 3 passavam por inteiros do pedido."""
+    from app.agente import conferir_contra_o_pedido
+
+    assert f"quantidade {quantidade}, que não é um número inteiro" in conferir_contra_o_pedido(
+        proposta([item(81, 2)]), pedido)[0]
+    assert conferir_contra_o_pedido(proposta([]), pedido) == []
+
+
+@pytest.mark.parametrize("pedido, quantidade", [
+    ("3 laptops até 1500,50 cada", 3),
+    ("3 laptops até US$ 1.099,99 cada", 3),
+    ("2 laptops até 1,5 mil dólares cada", 2),
+    ("1.000 canetas", 1000),
+    ("3 laptops acima de 1500,50", 3),
+])
+def test_valor_com_decimais_nao_e_quantidade_invalida(pedido, quantidade):
+    from app.agente import conferir_contra_o_pedido
+
+    problemas = conferir_contra_o_pedido(proposta([item(81, quantidade)]), pedido)
+
+    assert not any("número inteiro" in p for p in problemas)
+
+
 # --- o que conta como teto ----------------------------------------------------------------------------
 
 
